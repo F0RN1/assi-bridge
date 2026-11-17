@@ -1,4 +1,4 @@
-﻿const CACHE = 'assi-v4';
+﻿const CACHE = 'assi-v5';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/favicon.png'];
 
 self.addEventListener('install', e => {

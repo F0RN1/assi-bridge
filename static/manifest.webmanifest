@@ -1,13 +1,13 @@
 {
   "name": "Assi",
   "short_name": "Assi",
-  "description": "Чат с ассистентом на ноуте: текст, файлы, голос.",
+  "description": "Мост с телефоном: чат с OpenCode, файлы, голос.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#111318",
-  "theme_color": "#111318",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
   "icons": [
     {
       "src": "/icon-192.png",

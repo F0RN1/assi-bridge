@@ -3,7 +3,7 @@ import asyncio, base64, json, os, re, secrets, shutil, socket, subprocess, sys, 
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -243,7 +243,71 @@ async def history(request: Request, token: str | None = Header(default=None, ali
     sid = await ensure_session()
     r = await api.get(f"/api/session/{sid}/message", params={"order": "asc"})
     r.raise_for_status()
-    return {"messages": render(r.json()["data"]), "session": sid}
+    info = await api.get(f"/api/session/{sid}")
+    title = (info.json().get("data") or {}).get("title") if info.status_code == 200 else None
+    return {"messages": render(r.json()["data"]), "session": sid, "title": title}
+
+
+@app.get("/api/sessions")
+async def sessions(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Список чатов в OpenCode: свежие сверху."""
+    auth(request, token)
+    await ensure_session()
+    r = await api.get("/api/session")
+    r.raise_for_status()
+    items = r.json()
+    items = items.get("data") if isinstance(items, dict) else items
+    out = []
+    for s in items or []:
+        t = (s.get("time") or {})
+        out.append({
+            "id": s.get("id"),
+            "title": s.get("title") or "без названия",
+            "updated": t.get("updated") or t.get("created") or 0,
+            "busy": bool(t.get("busy")),
+            "agent": s.get("agent"),
+        })
+    out.sort(key=lambda s: s["updated"], reverse=True)
+    return {"sessions": out[:60], "current": state.get("session_id")}
+
+
+@app.post("/api/session/new")
+async def session_new(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Новый чат."""
+    auth(request, token)
+    await ensure_server()
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    title = (body.get("title") or "").strip() or "Телефон " + datetime.datetime.now().strftime("%d.%m %H:%M")
+    r = await api.post("/api/session", json={
+        "title": title, "agent": AGENT, "model": MODEL,
+        "location": {"directory": WORKDIR},
+    })
+    if r.status_code >= 400:
+        raise HTTPException(502, r.text[:300])
+    state["session_id"] = r.json()["data"]["id"]
+    save_state()
+    return {"ok": True, "session": state["session_id"], "title": title}
+
+
+@app.post("/api/session/select")
+async def session_select(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Переключиться на существующий чат."""
+    auth(request, token)
+    body = await request.json()
+    sid = body.get("id") or ""
+    if not sid.startswith("ses_"):
+        raise HTTPException(400, "bad session id")
+    await ensure_server()
+    r = await api.get(f"/api/session/{sid}")
+    if r.status_code != 200:
+        raise HTTPException(404, "нет такого чата")
+    state["session_id"] = sid
+    save_state()
+    return {"ok": True, "session": sid}
 
 
 MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
@@ -287,7 +351,8 @@ _whisper = None
 
 
 @app.post("/api/transcribe")
-async def transcribe(request: Request, file: UploadFile = File(...), token: str | None = Header(default=None, alias="X-Bridge-Token")):
+async def transcribe(request: Request, file: UploadFile = File(...), seconds: str | None = Form(default=None),
+                     token: str | None = Header(default=None, alias="X-Bridge-Token")):
     auth(request, token)
     global _whisper
     if _whisper is None:
@@ -297,8 +362,13 @@ async def transcribe(request: Request, file: UploadFile = File(...), token: str 
     with tmp.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     try:
-        segments, _info = _whisper.transcribe(str(tmp), language="ru", vad_filter=True)
+        segments, info = _whisper.transcribe(str(tmp), language="ru", vad_filter=True)
         text = " ".join(s.text.strip() for s in segments).strip()
+        line = (f"{datetime.datetime.now().isoformat(timespec='seconds')} voice: client={seconds}s "
+                f"audio={getattr(info, 'duration', 0):.1f}s vad={getattr(info, 'duration_after_vad', 0):.1f}s "
+                f"bytes={tmp.stat().st_size} chars={len(text)}\n")
+        with CLIENT_LOG.open("a", encoding="utf-8") as f:
+            f.write(line)
     finally:
         tmp.unlink(missing_ok=True)
     return {"text": text}
