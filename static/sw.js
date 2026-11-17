@@ -1,5 +1,5 @@
-﻿const CACHE = 'assi-v5';
-const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/favicon.png'];
+﻿const CACHE = 'assi-v6';
+const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png?v=3', '/icon-512.png?v=3', '/favicon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

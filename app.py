@@ -379,6 +379,17 @@ async def index():
     return FileResponse(ROOT / "static" / "index.html")
 
 
+APK_PATH = Path.home() / "tools" / "apk-build" / "app-release-signed.apk"
+
+
+@app.get("/apk")
+async def apk():
+    """Свежий APK — чтобы ставить приложение на телефон без кабеля."""
+    if not APK_PATH.exists():
+        raise HTTPException(404, "apk not built")
+    return FileResponse(APK_PATH, filename="assi.apk", media_type="application/vnd.android.package-archive")
+
+
 app.mount("/", StaticFiles(directory=ROOT / "static"), name="static")
 
 

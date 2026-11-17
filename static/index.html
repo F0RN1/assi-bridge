@@ -142,7 +142,7 @@
       <path d="M4 7h16M4 12h16M4 17h10"/>
     </svg>
   </button>
-  <img class="ava" src="/icon-192.png" alt="">
+  <img class="ava" src="/icon-192.png?v=3" alt="">
   <div class="who">
     <div class="nm">Assi</div>
     <div class="st" id="stat">ждёт</div>
@@ -347,7 +347,7 @@ function render(messages) {
 function notify() {
   if (navigator.vibrate) navigator.vibrate(35);
   if (document.hidden && window.Notification && Notification.permission === 'granted') {
-    new Notification('Assi', { body: 'ответила', icon: '/icon-192.png' });
+    new Notification('Assi', { body: 'ответила', icon: '/icon-192.png?v=3' });
   }
 }
 
@@ -594,7 +594,7 @@ $('sheet').onclick = async (e) => {
 };
 
 /* ---------- микрофон ---------- */
-let rec = null, chunks = [], recStart = 0, warm = null, warmAt = 0;
+let rec = null, chunks = [], recStart = 0;
 const MIC_SVG = $('mic').innerHTML;
 const STOP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
 
@@ -614,33 +614,15 @@ logc('загрузка: secure=' + window.isSecureContext + ' mediaDevices=' + !
      ' ua=' + navigator.userAgent.slice(0, 60));
 if (!micOk) { $('mic').style.opacity = '0.45'; $('mic').title = 'нужен https'; }
 
-/* Микрофон держим «тёплым»: первый поток открывается по первому касанию,
-   поэтому запись стартует мгновенно и не съедает первые секунды речи. */
-async function warmMic() {
-  if (!micOk || (warm && warm.getAudioTracks().some(t => t.readyState === 'live'))) return warm;
-  try {
-    warm = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
-    });
-    warmAt = Date.now();
-    logc('mic: поток прогрет');
-  } catch (e) { logc('mic: прогрев не удался ' + e.name); warm = null; }
-  return warm;
-}
-function coolMic() {
-  if (!warm) return;
-  if (Date.now() - warmAt < 120000) return;
-  warm.getTracks().forEach(t => t.stop());
-  warm = null;
-}
-['pointerdown', 'keydown'].forEach(ev => document.body.addEventListener(ev, () => { warmMic(); }, { passive: true }));
-setInterval(coolMic, 30000);
-
+/* Микрофон открывается только по нажатию и освобождается сразу после записи:
+   иначе система считает, что идёт звонок, и портит вывод звука (музыка в наушниках падает в моно/тише). */
 $('mic').onclick = async () => {
   if (!micOk) { setStat('микрофон только на https', false); return; }
   if (rec && rec.state === 'recording') { rec.stop(); return; }
   try {
-    const stream = await warmMic();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+    });
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
     rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 64000 } : undefined);
     chunks = [];
@@ -650,6 +632,8 @@ $('mic').onclick = async () => {
       $('mic').classList.remove('rec'); $('mic').innerHTML = MIC_SVG;
       const type = (rec && rec.mimeType) || mime || 'audio/webm';
       const blob = new Blob(chunks, { type });
+      stream.getTracks().forEach(t => t.stop());   // сразу отпускаем микрофон
+      rec = null;
       logc('mic: запись ' + secs + 's, ' + blob.size + ' байт, mime=' + type);
       setStat('распознаёт…', true);
       const fd = new FormData();
@@ -661,9 +645,8 @@ $('mic').onclick = async () => {
         $('text').focus(); $('text').dispatchEvent(new Event('input'));
         setStat('ждёт', false);
       } catch (e) { setStat('не распозналось', false); }
-      warmAt = Date.now(); // только что использовали — не остужаем сразу
     };
-    rec.start(250); // отдаём чанки по 250 мс, чтобы начало записи не терялось
+    rec.start(250); // чанки по 250 мс, чтобы начало записи не терялось
     recStart = Date.now();
     $('mic').classList.add('rec'); $('mic').innerHTML = STOP_SVG;
     setStat('пишу…', true);
@@ -672,6 +655,9 @@ $('mic').onclick = async () => {
     setStat('микрофон: ' + (e.name || ''), false);
   }
 };
+window.addEventListener('pagehide', () => {
+  if (rec && rec.state === 'recording') { try { rec.stop(); } catch (_) {} }
+});
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 if (window.Notification && Notification.permission === 'default') {
