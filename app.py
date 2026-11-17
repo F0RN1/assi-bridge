@@ -93,6 +93,24 @@ async def ping():
     return {"ok": True}
 
 
+@app.post("/api/power")
+async def power(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Выключить / перезагрузить / усыпить ноут по команде с телефона."""
+    auth(request, token)
+    body = await request.json()
+    action = (body.get("action") or "").lower()
+    cmds = {
+        "shutdown": ["shutdown.exe", "/s", "/t", "5", "/c", "Выключение с телефона"],
+        "reboot": ["shutdown.exe", "/r", "/t", "5", "/c", "Перезагрузка с телефона"],
+        "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
+        "lock": ["rundll32.exe", "user32.dll,LockWorkStation"],
+    }
+    if action not in cmds:
+        raise HTTPException(400, "unknown action")
+    subprocess.Popen(cmds[action], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return {"ok": True, "action": action}
+
+
 CLIENT_LOG = ROOT / "client.log"
 
 

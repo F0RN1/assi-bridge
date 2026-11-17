@@ -68,10 +68,35 @@
   #jump { position:fixed; right:14px; bottom:82px; width:38px; height:38px; border-radius:50%;
           background:#2a2f3aee; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; }
   #jump.on { opacity:1; pointer-events:auto; }
+  #pw { margin-left:auto; width:32px; height:32px; padding:0; border-radius:10px; background:transparent;
+        color:var(--dim); display:flex; align-items:center; justify-content:center; }
+  #pw svg { width:19px; height:19px; }
+  #pw:active { transform:scale(.94); color:#e6e9f0; }
+  header small { margin-left:0; }
+  #sheet { position:fixed; inset:0; display:none; flex-direction:column; justify-content:flex-end;
+           background:#000a; backdrop-filter:blur(2px); z-index:30; }
+  #sheet.on { display:flex; }
+  #sheet .row { background:var(--panel); padding:16px 20px; font-size:16px; border-top:1px solid var(--line);
+                animation:pop .18s ease-out; }
+  #sheet .row:last-child { padding-bottom:26px; }
+  #sheet .row.danger { color:#ff6b6b; }
+  #sheet .row:active { background:#252a35; }
 </style>
 </head>
 <body>
-<header><img src="/icon-192.png" alt="">Асси <small id="stat">мост</small></header>
+<header><img src="/icon-192.png" alt="">Асси <small id="stat">мост</small>
+  <button id="pw" title="питание" aria-label="питание">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1011.2 0"/>
+    </svg>
+  </button>
+</header>
+<div id="sheet">
+  <div class="row" data-act="lock">Заблокировать</div>
+  <div class="row" data-act="sleep">Сон</div>
+  <div class="row" data-act="reboot">Перезагрузить</div>
+  <div class="row danger" data-act="shutdown">Выключить</div>
+</div>
 <div id="setup">
   <p>Вставь токен моста:</p>
   <input id="tok" placeholder="токен" autocomplete="off">
@@ -389,6 +414,22 @@ $('file').onchange = async e => {
     } catch (err) { $('stat').textContent = 'файл не загрузился'; }
   }
   e.target.value = '';
+};
+
+/* ---------- питание ---------- */
+const NAMES = { lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?' };
+$('pw').onclick = () => { if (!token) return; $('sheet').classList.add('on'); };
+$('sheet').onclick = async (e) => {
+  if (e.target === $('sheet')) { $('sheet').classList.remove('on'); return; }
+  const act = e.target.dataset.act;
+  if (!act) return;
+  $('sheet').classList.remove('on');
+  if (!confirm(NAMES[act])) return;
+  try {
+    await api('/api/power', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: act }) });
+    $('stat').textContent = act === 'lock' ? 'заблокировано' : 'команда ушла';
+    if (navigator.vibrate) navigator.vibrate(30);
+  } catch (_) { $('stat').textContent = 'не получилось'; }
 };
 
 /* ---------- микрофон ---------- */
