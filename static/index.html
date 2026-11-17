@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Асси</title>
+<title>Assi</title>
 <style>
   :root { --bg:#111318; --panel:#1a1d24; --me:#2a6df4; --txt:#e8eaf0; --dim:#8a90a0; --line:#23262f; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -84,7 +84,7 @@
 </style>
 </head>
 <body>
-<header><img src="/icon-192.png" alt="">Асси <small id="stat">мост</small>
+<header><img src="/icon-192.png" alt="">Assi <small id="stat">мост</small>
   <button id="pw" title="питание" aria-label="питание">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1011.2 0"/>
@@ -258,7 +258,7 @@ function render(messages) {
 function notify() {
   if (navigator.vibrate) navigator.vibrate(35);
   if (document.hidden && window.Notification && Notification.permission === 'granted') {
-    new Notification('Асси', { body: 'ответила', icon: '/icon-192.png' });
+    new Notification('Assi', { body: 'ответила', icon: '/icon-192.png' });
   }
 }
 
@@ -448,7 +448,9 @@ window.addEventListener('unhandledrejection', e => logc('JS reject: ' + (e.reaso
 
 const micOk = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 logc('загрузка: secure=' + window.isSecureContext + ' mediaDevices=' + !!navigator.mediaDevices +
-     ' micOk=' + micOk + ' MediaRecorder=' + (typeof MediaRecorder));
+     ' micOk=' + micOk + ' MediaRecorder=' + (typeof MediaRecorder) +
+     ' href=' + location.href + ' sw=' + (navigator.serviceWorker && navigator.serviceWorker.controller ? 'yes' : 'no') +
+     ' ua=' + navigator.userAgent.slice(0, 60));
 if (!micOk) { $('mic').style.opacity = '0.45'; $('mic').title = 'нужен https'; }
 
 $('mic').onclick = async () => {

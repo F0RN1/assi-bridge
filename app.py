@@ -93,6 +93,25 @@ async def ping():
     return {"ok": True}
 
 
+ASSETLINKS = [{
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+        "namespace": "android_app",
+        "package_name": "ru.f0rn1.assibridge",
+        "sha256_cert_fingerprints": [
+            "03:59:D5:37:50:9A:E7:D5:0F:91:50:09:2D:D9:91:8C:23:10:BC:E0:D2:5D:EB:59:02:0E:C6:40:26:41:37:3D",
+        ],
+    },
+}]
+
+
+@app.get("/.well-known/assetlinks.json")
+async def assetlinks():
+    """Digital Asset Links: без этого Chrome не считает приложение доверенным и падает в Custom Tab."""
+    return JSONResponse(ASSETLINKS)
+
+
+
 @app.post("/api/power")
 async def power(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """Выключить / перезагрузить / усыпить ноут по команде с телефона."""
