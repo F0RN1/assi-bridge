@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+bridge.json
+*.log
+probe_last.json
+*.bak
