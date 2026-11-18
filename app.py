@@ -4,7 +4,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).parent
@@ -28,6 +28,9 @@ if "token" not in state:
     save_state()
 
 TOKEN = state["token"]
+if "public_url" not in state:
+    state["public_url"] = "https://assi.assi.pro"
+    save_state()
 api = httpx.AsyncClient(base_url=f"http://127.0.0.1:{OPENCODE_PORT}", timeout=180)
 _server: subprocess.Popen | None = None
 
@@ -455,6 +458,27 @@ async def apk():
     if not APK_PATH.exists():
         raise HTTPException(404, "apk not built")
     return FileResponse(APK_PATH, filename="assi.apk", media_type="application/vnd.android.package-archive")
+
+
+@app.get("/local")
+async def local_info(request: Request):
+    """Страница для этого же компа: адрес сервера и токен. Только с localhost."""
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(404, "not found")
+    pub = state.get("public_url") or ""
+    link = f"{pub}/?token={TOKEN}" if pub else ""
+    html = f"""<!doctype html><meta charset="utf-8"><title>Assi — подключение</title>
+<style>body{{background:#080809;color:#e6e6e6;font:15px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:28px;max-width:720px}}
+h1{{font-size:19px;font-weight:600}} code{{background:#14161b;padding:2px 6px;border-radius:5px;color:#7cc4ff;word-break:break-all}}
+.row{{margin:16px 0;padding:14px;border:1px solid #1d2027;border-radius:10px}} .k{{color:#8b93a1;font-size:12px;text-transform:uppercase;letter-spacing:.08em}}
+a{{color:#7cc4ff}}</style>
+<h1>Подключение приложения Assi</h1>
+<div class="row"><div class="k">адрес сервера</div><code>{pub or 'http://127.0.0.1:8787'}</code></div>
+<div class="row"><div class="k">токен</div><code>{TOKEN}</code></div>
+{f'<div class="row"><div class="k">ссылка сразу с токеном</div><a href="{link}">{link}</a></div>' if link else ''}
+<p style="color:#8b93a1">В приложении: адрес — верхняя строка, токен — вторая. Если сервер за туннелем, адрес будет вида <code>https://assi.example.com</code>.</p>"""
+    return HTMLResponse(html)
 
 
 app.mount("/", StaticFiles(directory=ROOT / "static"), name="static")
