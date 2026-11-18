@@ -7,11 +7,16 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import os
+
 ROOT = Path(__file__).parent
-STATE = ROOT / "bridge.json"
-INBOX = Path.home() / "Inbox"
-OPENCODE_PORT = 8790
-BIND = ("0.0.0.0", 8787)
+# Экземпляр можно запускать по несколько: параметры через переменные окружения.
+INSTANCE = os.environ.get("ASSI_INSTANCE", "assi")
+STATE = ROOT / f"bridge{'' if INSTANCE == 'assi' else '-' + INSTANCE}.json"
+INBOX = Path.home() / "Inbox" if INSTANCE == "assi" else Path.home() / "Inbox" / INSTANCE
+OPENCODE_PORT = int(os.environ.get("ASSI_OPENCODE_PORT", 8790))
+BIND = ("0.0.0.0", int(os.environ.get("ASSI_PORT", 8787)))
+PUBLIC_URL = os.environ.get("ASSI_PUBLIC_URL", "https://assi.assi.pro")
 MODEL = {"providerID": "opencode", "id": "deepseek-v4.1-flash-free"}
 AGENT = "build"
 WORKDIR = str(Path.home())
@@ -29,7 +34,7 @@ if "token" not in state:
 
 TOKEN = state["token"]
 if "public_url" not in state:
-    state["public_url"] = "https://assi.assi.pro"
+    state["public_url"] = PUBLIC_URL
     save_state()
 api = httpx.AsyncClient(base_url=f"http://127.0.0.1:{OPENCODE_PORT}", timeout=180)
 _server: subprocess.Popen | None = None
@@ -180,7 +185,7 @@ async def assetlinks():
 
 
 
-CLIENT_LOG = ROOT / "client.log"
+CLIENT_LOG = ROOT / (f"client{'' if INSTANCE == 'assi' else '-' + INSTANCE}.log")
 
 
 @app.post("/api/clientlog")
