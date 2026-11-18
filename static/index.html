@@ -167,8 +167,9 @@
 </aside>
 
 <div id="sheet">
-  <div class="row" data-act="lock">Заблокировать</div>
+  <div class="row" data-act="wake">Разбудить (WOL)</div>
   <div class="row" data-act="sleep">Сон</div>
+  <div class="row" data-act="lock">Заблокировать</div>
   <div class="row" data-act="reboot">Перезагрузить</div>
   <div class="row danger" data-act="shutdown">Выключить</div>
 </div>
@@ -578,7 +579,7 @@ $('file').onchange = async e => {
 };
 
 /* ---------- питание ---------- */
-const NAMES = { lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?' };
+const NAMES = { wake: 'Разбудить ноут (WOL)?', lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?' };
 $('pw').onclick = () => { if (!token) return; $('sheet').classList.add('on'); };
 $('sheet').onclick = async (e) => {
   if (e.target === $('sheet')) { $('sheet').classList.remove('on'); return; }

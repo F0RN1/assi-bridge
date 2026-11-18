@@ -93,6 +93,50 @@ async def ping():
     return {"ok": True}
 
 
+# --- Управление питанием -------------------------------------------------
+# WOL: Magic Packet на MAC Wi-Fi адаптера, чтобы разбудить уснувший ноут с телефона.
+WOL_MAC = "30-E3-A4-D4-DD-2A"
+
+
+def send_wol(mac: str = WOL_MAC) -> bool:
+    """Шлёт magic packet (6x FF + MAC, повторённый 16 раз) на broadcast:9."""
+    try:
+        import socket
+        addr = mac.replace("-", ":").replace(":", "")
+        if len(addr) != 12:
+            return False
+        payload = b"\xff" * 6 + bytes.fromhex(addr) * 16
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        for _ in range(3):
+            s.sendto(payload, ("255.255.255.255", 9))
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+@app.post("/api/power")
+async def power(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Действия: shutdown / reboot / sleep / lock / wake (magic packet)."""
+    auth(request, token)
+    body = await request.json()
+    action = body.get("action")
+    cmds = {
+        "shutdown": ["shutdown.exe", "/s", "/t", "5", "/c", "Выключение с телефона"],
+        "reboot": ["shutdown.exe", "/r", "/t", "5", "/c", "Перезагрузка с телефона"],
+        "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
+        "lock": ["rundll32.exe", "user32.dll,LockWorkStation"],
+    }
+    if action == "wake":
+        ok = send_wol()
+        return {"ok": ok, "action": action}
+    if action not in cmds:
+        raise HTTPException(400, "unknown action")
+    subprocess.Popen(cmds[action], creationflags=subprocess.CREATE_NO_WINDOW)
+    return {"ok": True, "action": action}
+
+
 ASSETLINKS = [{
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
@@ -110,24 +154,6 @@ async def assetlinks():
     """Digital Asset Links: без этого Chrome не считает приложение доверенным и падает в Custom Tab."""
     return JSONResponse(ASSETLINKS)
 
-
-
-@app.post("/api/power")
-async def power(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
-    """Выключить / перезагрузить / усыпить ноут по команде с телефона."""
-    auth(request, token)
-    body = await request.json()
-    action = (body.get("action") or "").lower()
-    cmds = {
-        "shutdown": ["shutdown.exe", "/s", "/t", "5", "/c", "Выключение с телефона"],
-        "reboot": ["shutdown.exe", "/r", "/t", "5", "/c", "Перезагрузка с телефона"],
-        "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
-        "lock": ["rundll32.exe", "user32.dll,LockWorkStation"],
-    }
-    if action not in cmds:
-        raise HTTPException(400, "unknown action")
-    subprocess.Popen(cmds[action], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    return {"ok": True, "action": action}
 
 
 CLIENT_LOG = ROOT / "client.log"
