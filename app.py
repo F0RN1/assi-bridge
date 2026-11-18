@@ -186,10 +186,26 @@ async def chat(request: Request, token: str | None = Header(default=None, alias=
     if not text:
         raise HTTPException(400, "empty")
     sid = await ensure_session()
-    r = await api.post(f"/api/session/{sid}/prompt", json={"text": text})
-    if r.status_code >= 400:
-        raise HTTPException(502, r.text[:300])
+    # Асинхронно: не ждём постановку промпта, чтобы телефон не держал долгий запрос
+    # (мобильные сети режут длинные соединения — отсюда Failed to fetch).
+    async def _send():
+        try:
+            r = await api.post(f"/api/session/{sid}/prompt", json={"text": text})
+            if r.status_code >= 400:
+                logc_local(f"prompt error: {r.status_code} {r.text[:200]}")
+        except Exception as e:
+            logc_local(f"prompt exception: {e}")
+    asyncio.create_task(_send())
     return {"ok": True}
+
+
+def logc_local(msg: str) -> None:
+    """Пишем ошибки отправки в client.log, чтобы видеть проблемы с телефона."""
+    try:
+        with CLIENT_LOG.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} bridge: {msg}\n")
+    except Exception:
+        pass
 
 
 FILE_BLOCK = "\n\nФайлы (пользователь прислал с телефона, пути локальные):\n"
