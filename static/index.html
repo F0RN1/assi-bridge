@@ -229,9 +229,17 @@ function showSetup(on) {
 }
 if (!token) showSetup(true);
 
-/* Ввод токена: проверяем сразу, показываем причину, и стартуем чат без перезагрузки страницы */
+/* Ввод токена: чистим вставленное (кавычки, пробелы, ссылка целиком), проверяем сразу и стартуем без перезагрузки */
+function cleanToken(v) {
+  let s = String(v || '').trim();
+  const i = s.indexOf('token=');
+  if (i >= 0) s = s.slice(i + 6);
+  s = s.split('&')[0];
+  s = s.replace(/^[\s"'`«»]+|[\s"'`«».]+$/g, '');
+  return s;
+}
 async function startWithToken(value) {
-  token = (value || '').trim();
+  token = cleanToken(value);
   localStorage.setItem('token', token);
   const msg = $('tokmsg');
   if (!token) { if (msg) msg.textContent = ''; showSetup(true); return; }

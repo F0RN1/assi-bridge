@@ -83,8 +83,14 @@ app = FastAPI(title="Bridge")
 
 
 def auth(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")) -> None:
-    t = token or request.query_params.get("token")
+    t = (token or request.query_params.get("token") or "").strip()
+    if "token=" in t:
+        t = t[t.index("token=") + 6:].split("&")[0]
+    t = t.strip(" \t\r\n\"'`«»")
     if t != TOKEN:
+        ua = request.headers.get("user-agent", "")[:60]
+        got = (t or "")[:6] + "…" if t else "пусто"
+        logc_local(f"401 {request.url.path} ip={request.client.host if request.client else '?'} ua={ua} token={got} len={len(t or '')}")
         raise HTTPException(401, "bad token")
 
 
