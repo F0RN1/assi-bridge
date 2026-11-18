@@ -142,7 +142,7 @@
       <path d="M4 7h16M4 12h16M4 17h10"/>
     </svg>
   </button>
-  <img class="ava" src="/icon-192.png?v=3" alt="">
+  <img class="ava" src="/icon-192.png?v=4" alt="">
   <div class="who">
     <div class="nm">Assi</div>
     <div class="st" id="stat">ждёт</div>
@@ -347,7 +347,7 @@ function render(messages) {
 function notify() {
   if (navigator.vibrate) navigator.vibrate(35);
   if (document.hidden && window.Notification && Notification.permission === 'granted') {
-    new Notification('Assi', { body: 'ответила', icon: '/icon-192.png?v=3' });
+    new Notification('Assi', { body: 'ответила', icon: '/icon-192.png?v=4' });
   }
 }
 
