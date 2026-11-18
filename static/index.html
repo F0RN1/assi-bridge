@@ -177,6 +177,7 @@
 <div id="setup">
   <p>Вставь токен моста:</p>
   <input id="tok" placeholder="токен" autocomplete="off">
+  <p id="tokmsg"></p>
   <p>Он печатается при запуске моста и лежит в bridge.json.</p>
 </div>
 
@@ -227,9 +228,36 @@ function showSetup(on) {
   document.querySelector('footer').style.display = on ? 'none' : 'flex';
 }
 if (!token) showSetup(true);
-$('tok').addEventListener('change', e => {
-  token = e.target.value.trim(); localStorage.setItem('token', token); showSetup(!token);
-});
+
+/* Ввод токена: проверяем сразу, показываем причину, и стартуем чат без перезагрузки страницы */
+async function startWithToken(value) {
+  token = (value || '').trim();
+  localStorage.setItem('token', token);
+  const msg = $('tokmsg');
+  if (!token) { if (msg) msg.textContent = ''; showSetup(true); return; }
+  if (msg) msg.textContent = 'проверяю…';
+  try {
+    const r = await fetch('/api/history', { headers: { 'X-Bridge-Token': token } });
+    if (r.status === 401) {
+      localStorage.removeItem('token');
+      token = '';
+      if (msg) msg.textContent = 'токен не подошёл — скопируй целиком и вставь заново';
+      showSetup(true);
+      return;
+    }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (msg) msg.textContent = '';
+    _netState = true;
+    showSetup(false);
+    nodes = [];
+    $('log').innerHTML = '';
+    refresh(); loadSessions(); openStream();
+  } catch (e) {
+    if (msg) msg.textContent = 'не удалось проверить: ' + (e.message || e);
+  }
+}
+$('tok').addEventListener('change', e => startWithToken(e.target.value));
+$('tok').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); startWithToken(e.target.value); } });
 
 async function api(path, opts = {}) {
   let lastErr;
