@@ -172,6 +172,7 @@
   <div class="row" data-act="lock">Заблокировать</div>
   <div class="row" data-act="reboot">Перезагрузить</div>
   <div class="row danger" data-act="shutdown">Выключить</div>
+  <div class="row" data-act="server" style="display:none">Сменить сервер</div>
 </div>
 
 <div id="setup">
@@ -640,13 +641,28 @@ $('sheet').onclick = async (e) => {
   const act = e.target.dataset.act;
   if (!act) return;
   $('sheet').classList.remove('on');
+  if (act === 'server' && window.AssiNative) { AssiNative.resetServer(); return; }
   if (!confirm(NAMES[act])) return;
   try {
+    if (act === 'wake' && window.AssiNative && AssiNative.hasWol()) {
+      const info = await api('/api/wol-info').catch(() => null);
+      const ok = AssiNative.wake(info ? info.mac : '', info ? info.broadcasts : '');
+      setStat(ok ? 'сигнал пробуждения ушёл' : 'не смог отправить', false);
+      if (navigator.vibrate) navigator.vibrate(30);
+      return;
+    }
     await api('/api/power', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: act }) });
     setStat(act === 'lock' ? 'заблокировано' : 'команда ушла', false);
     if (navigator.vibrate) navigator.vibrate(30);
   } catch (_) { setStat('не получилось', false); }
 };
+
+/* в приложении запоминаем MAC ноута — чтобы «Разбудить» работало, даже когда сервер спит */
+if (window.AssiNative) {
+  api('/api/wol-info').then(i => { try { AssiNative.setWol(i.mac, i.broadcasts); } catch (_) {} }).catch(() => {});
+  const row = document.querySelector('#sheet .row[data-act="server"]');
+  if (row) row.style.display = 'block';
+}
 
 /* ---------- микрофон ---------- */
 let rec = null, chunks = [], recStart = 0;

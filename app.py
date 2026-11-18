@@ -122,6 +122,21 @@ def send_wol(mac: str = WOL_MAC) -> bool:
         return False
 
 
+@app.get("/api/wol-info")
+async def wol_info(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """MAC ноута и broadcast-адреса — приложение шлёт magic packet само, когда сервер спит."""
+    auth(request, token)
+    bcasts = ["255.255.255.255"]
+    try:
+        for ip in lan_ips():
+            if ip.startswith(("127.", "169.254.")):
+                continue
+            bcasts.append(ip.rsplit(".", 1)[0] + ".255")
+    except Exception:
+        pass
+    return {"mac": WOL_MAC, "broadcasts": ",".join(dict.fromkeys(bcasts))}
+
+
 @app.post("/api/power")
 async def power(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """Действия: shutdown / reboot / sleep / lock / wake (magic packet)."""
@@ -427,7 +442,11 @@ async def index():
     return FileResponse(ROOT / "static" / "index.html")
 
 
-APK_PATH = Path.home() / "tools" / "apk-build" / "app-release-signed.apk"
+APK_PATHS = [
+    Path.home() / "tools" / "apk-webview" / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk",
+    Path.home() / "tools" / "apk-build" / "app-release-signed.apk",
+]
+APK_PATH = next((p for p in APK_PATHS if p.exists()), APK_PATHS[-1])
 
 
 @app.get("/apk")
