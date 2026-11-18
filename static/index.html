@@ -729,6 +729,25 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) closeStream();
   else if (token) { openStream(); refresh(); }
 });
+
+/* Связь вернулась по мнению системы — сразу пробуем заново */
+window.addEventListener('online', () => { if (token) { _netState = true; refresh(); openStream(); } });
+
+/* Тап по статусу — ручное переподключение: переоткрываем поток и, если совсем всё, перезагружаем страницу */
+$('stat').style.cursor = 'pointer';
+$('stat').onclick = async () => {
+  if (!token) return;
+  setStat('переподключаюсь…', true);
+  closeStream();
+  try {
+    await api('/api/history');
+    openStream();
+    setStat('ждёт', false);
+  } catch (e) {
+    setStat('перезагружаю страницу…', true);
+    setTimeout(() => location.reload(), 400);
+  }
+};
 </script>
 </body>
 </html>

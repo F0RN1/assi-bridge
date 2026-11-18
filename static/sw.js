@@ -1,5 +1,7 @@
-﻿const CACHE = 'assi-v7';
-const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png?v=4', '/icon-512.png?v=4', '/favicon.png'];
+﻿const CACHE = 'assi-v8';
+/* HTML не кэшируем: страница должна всегда приходить с сервера, иначе после сбоя сети
+   остаётся старая версия интерфейса и «нет связи» не снимается. */
+const SHELL = ['/manifest.webmanifest', '/icon-192.png?v=4', '/icon-512.png?v=4', '/favicon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -11,21 +13,13 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (url.pathname.startsWith('/api/')) return;           // СЃРµС‚СЊ РєР°Рє РµСЃС‚СЊ
-  // HTML РІСЃРµРіРґР° СЃРІРµР¶РёР№, РѕСЃС‚Р°Р»СЊРЅРѕРµ вЂ” РёР· РєСЌС€Р°
-  if (url.pathname === '/' || url.pathname.endsWith('.html')) {
-    e.respondWith(fetch(e.request).then(r => {
-      const copy = r.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
-      return r;
-    }).catch(() => caches.match('/')));
-    return;
-  }
+  if (url.pathname.startsWith('/api/')) return;                 // сеть как есть
+  if (url.pathname === '/' || url.pathname.endsWith('.html')) return; // всегда сеть
   e.respondWith(
     caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
       const copy = r.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
       return r;
-    }).catch(() => caches.match('/')))
+    }))
   );
 });
