@@ -342,11 +342,14 @@ $('tok').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDe
 $('tokgo').addEventListener('click', () => startWithToken($('tok').value));
 
 async function api(path, opts = {}) {
+  const isGet = !opts.method || opts.method === 'GET';
+  const tries = isGet ? 4 : 1;   // POST не ретраим: повтор = задвоенный файл или промпт
+  const timeout = opts.timeout || (isGet ? 15000 : 120000);   // upload большого файла через туннель идёт дольше 15 с
   let lastErr;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < tries; attempt++) {
     try {
       const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 15000);
+      const t = setTimeout(() => ctl.abort(), timeout);
       const r = await fetch(path, { ...opts, signal: ctl.signal, headers: { 'X-Bridge-Token': token, ...(opts.headers || {}) } });
       clearTimeout(t);
       if (r.status === 401) { localStorage.removeItem('token'); showSetup(true); throw new Error('токен'); }
