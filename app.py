@@ -257,7 +257,12 @@ def render(messages: list[dict]) -> list[dict]:
             out.append({"role": "user", "text": text, "time": m["time"]["created"], "files": files})
         elif m["type"] == "assistant":
             parts = [c.get("text", "") for c in m.get("content") or [] if c.get("type") == "text"]
-            out.append({"role": "assistant", "text": "".join(parts), "time": m["time"]["created"],
+            text = "".join(parts)
+            # шаг агента без текста (вызов инструментов) в ленте не показываем:
+            # иначе на телефоне висит пустой пузырь с точками
+            if not text.strip() and not (m.get("error") or {}).get("message"):
+                continue
+            out.append({"role": "assistant", "text": text, "time": m["time"]["created"],
                         "done": bool(m["time"].get("completed")),
                         "error": (m.get("error") or {}).get("message")})
     return out

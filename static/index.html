@@ -373,6 +373,12 @@ function paintNode(d, m) {
   const sig = 'a' + (m.text || '') + '|' + (m.done ? 1 : 0);
   if (d._sig === sig) return false;
   d._sig = sig;
+  if (m.done && !m.text) {
+    // служебный шаг агента (вызов инструментов) — пузырь не показываем
+    d.style.display = 'none';
+    return true;
+  }
+  d.style.display = '';
   if (!m.text) {
     d._text.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
   } else if (m.done) {
@@ -429,7 +435,7 @@ function reconcile(msgs) {
   if (!busy && !streaming) return;
   const lastUser = msgs.map(m => m.role).lastIndexOf('user');
   const tail = lastUser < 0 ? msgs : msgs.slice(lastUser + 1);
-  const done = tail.find(m => m.role === 'assistant' && m.done);
+  const done = tail.filter(m => m.role === 'assistant' && m.done).pop();
   if (!done) return;
   if (streaming) {
     paintNode(streaming.node, { role: 'assistant', text: done.text || streaming.text, done: true });
