@@ -20,6 +20,10 @@ PUBLIC_URL = os.environ.get("ASSI_PUBLIC_URL", "https://assi.assi.pro")
 MODEL = {"providerID": "opencode", "id": "deepseek-v4.1-flash-free"}
 AGENT = "build"
 WORKDIR = str(Path.home())
+# Какие кнопки питания реально включены на этом сервере.
+# shutdown/reboot — только когда на машине заведомо работают права и политика; по умолчанию выключены.
+POWER_ACTIONS = [a.strip() for a in
+                 os.environ.get("ASSI_POWER_ACTIONS", "wake,sleep,lock").split(",") if a.strip()]
 
 state = json.loads(STATE.read_text("utf-8")) if STATE.exists() else {}
 
@@ -146,7 +150,8 @@ async def wol_info(request: Request, token: str | None = Header(default=None, al
             bcasts.append(ip.rsplit(".", 1)[0] + ".255")
     except Exception:
         pass
-    return {"mac": WOL_MAC, "broadcasts": ",".join(dict.fromkeys(bcasts))}
+    return {"mac": WOL_MAC, "broadcasts": ",".join(dict.fromkeys(bcasts)),
+            "actions": POWER_ACTIONS}
 
 
 @app.post("/api/power")
@@ -155,6 +160,8 @@ async def power(request: Request, token: str | None = Header(default=None, alias
     auth(request, token)
     body = await request.json()
     action = body.get("action")
+    if action not in POWER_ACTIONS:
+        raise HTTPException(403, "action disabled")
     cmds = {
         "shutdown": ["shutdown.exe", "/s", "/t", "5", "/c", "Выключение с телефона"],
         "reboot": ["shutdown.exe", "/r", "/t", "5", "/c", "Перезагрузка с телефона"],
@@ -456,7 +463,9 @@ async def transcribe(request: Request, file: UploadFile = File(...), seconds: st
 
 @app.get("/")
 async def index():
-    return FileResponse(ROOT / "static" / "index.html")
+    # HTML не кэшируем: интерфейс обновляется с сервера, а WebView любит держать старую копию
+    return FileResponse(ROOT / "static" / "index.html",
+                        headers={"Cache-Control": "no-store, must-revalidate"})
 
 
 APK_PATHS = [
