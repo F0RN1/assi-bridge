@@ -36,6 +36,10 @@ TOKEN = state["token"]
 if "public_url" not in state:
     state["public_url"] = PUBLIC_URL
     save_state()
+if state.get("port") != BIND[1] or state.get("instance") != INSTANCE:
+    state["port"] = BIND[1]
+    state["instance"] = INSTANCE
+    save_state()
 api = httpx.AsyncClient(base_url=f"http://127.0.0.1:{OPENCODE_PORT}", timeout=180)
 _server: subprocess.Popen | None = None
 
@@ -470,25 +474,201 @@ async def apk():
     return FileResponse(APK_PATH, filename="assi.apk", media_type="application/vnd.android.package-archive")
 
 
+HUB_CSS = """
+:root{
+  --bg:#0a0a0c; --surface:#101216; --surface-2:#15181e; --line:rgba(255,255,255,.08);
+  --text:#e8edf5; --muted:#7c8798; --lime:#bbf351; --cyan:#00bcff; --red:#ff5f57;
+  --mono:"Cascadia Mono","Source Code Pro",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"Inter",-apple-system,"Segoe UI",Roboto,ui-sans-serif,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 500px at 50% -180px,#151a14,transparent 70%),var(--bg);
+  color:var(--text);font:400 15px/1.55 var(--sans);-webkit-font-smoothing:antialiased;padding:28px 20px 56px}
+.wrap{max-width:900px;margin:0 auto}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:26px;flex-wrap:wrap}
+h1{margin:0;font:600 26px/1.15 var(--mono);letter-spacing:-.02em}
+h1 .dot{color:var(--lime)}
+.sub{margin:6px 0 0;color:var(--muted);font:12px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:10px;
+  border:1px solid var(--line);background:var(--surface);color:var(--text);font:500 13px/1 var(--mono);
+  text-decoration:none;cursor:pointer;transition:background .16s ease,border-color .16s ease,transform .16s ease}
+.btn:hover{background:var(--surface-2);border-color:rgba(255,255,255,.16)}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.btn.primary{background:var(--lime);border-color:var(--lime);color:#0a0a0c;font-weight:600}
+.btn.primary:hover{filter:brightness(1.06);background:var(--lime)}
+.btn svg{width:16px;height:16px;flex:none}
+.grid{display:grid;gap:14px;grid-template-columns:1fr}
+@media(min-width:780px){.grid{grid-template-columns:1fr 1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;
+  display:flex;flex-direction:column;gap:14px}
+.card .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.name{font:600 14px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;
+  font:500 11px/1 var(--mono);letter-spacing:.04em;border:1px solid transparent}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor;display:block}
+.pill.ok{color:var(--lime);background:rgba(187,243,81,.1);border-color:rgba(187,243,81,.25)}
+.pill.bad{color:var(--red);background:rgba(255,95,87,.1);border-color:rgba(255,95,87,.25)}
+.port{margin-left:auto;color:var(--muted);font:12px/1 var(--mono)}
+.field{display:flex;flex-direction:column;gap:5px}
+.k{color:var(--muted);font:11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.val{font:13px/1.5 var(--mono);word-break:break-all;color:var(--cyan)}
+.mask{color:var(--muted);letter-spacing:.12em}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mini{min-height:32px;padding:0 10px;font-size:12px;border-radius:8px}
+.qr{display:none;align-items:center;gap:14px;padding:12px;background:#fff;border-radius:12px;color:#0a0a0c}
+.qr.on{display:flex}
+.qr svg{width:132px;height:132px;display:block}
+.qr .cap{font:12px/1.45 var(--mono);color:#0a0a0c}
+footer{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font:12px/1.7 var(--mono)}
+footer b{color:var(--text);font-weight:500}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);opacity:0;pointer-events:none;
+  background:var(--lime);color:#0a0a0c;font:600 12px/1 var(--mono);padding:10px 16px;border-radius:999px;
+  transition:opacity .18s ease,transform .18s ease}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+"""
+
+HUB_JS = """
+const toast=(t)=>{const el=document.getElementById('toast');el.textContent=t;el.classList.add('on');
+  clearTimeout(window._tt);window._tt=setTimeout(()=>el.classList.remove('on'),1400)};
+document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',async()=>{
+  const v=b.getAttribute('data-copy');
+  try{await navigator.clipboard.writeText(v);}catch(_){
+    const ta=document.createElement('textarea');ta.value=v;document.body.appendChild(ta);
+    ta.select();document.execCommand('copy');ta.remove();
+  }
+  toast('скопировано');
+}));
+document.querySelectorAll('[data-reveal]').forEach(b=>b.addEventListener('click',()=>{
+  const el=document.getElementById(b.getAttribute('data-reveal'));
+  const full=el.getAttribute('data-token')||'';
+  const hide=!el.classList.contains('mask');
+  el.textContent = hide ? '•'.repeat(Math.min(full.length,20)) : full;
+  el.classList.toggle('mask', hide);
+  b.textContent = hide ? 'показать' : 'скрыть';
+}));
+document.querySelectorAll('[data-qr]').forEach(b=>b.addEventListener('click',()=>{
+  const el=document.getElementById(b.getAttribute('data-qr'));el.classList.toggle('on');
+}));
+"""
+
+COPY_ICON = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+             'stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/>'
+             '<path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>')
+OPEN_ICON = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+             'stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4 10 14"/>'
+             '<path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg>')
+APK_ICON = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+            'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/>'
+            '<path d="M5 21h14"/></svg>')
+
+
+def qr_svg(data: str) -> str:
+    """QR-код локально, без обращения к внешним сервисам (токен никуда не уходит)."""
+    try:
+        import segno
+        return segno.make(data, error="m").svg_inline(scale=4, border=2,
+                                                      dark="#0a0a0c", light="#ffffff")
+    except Exception:
+        return ""
+
+
+def hub_instances() -> list[dict]:
+    found = []
+    for p in sorted(ROOT.glob("bridge*.json")):
+        try:
+            st = json.loads(p.read_text("utf-8"))
+        except Exception:
+            continue
+        name = "assi" if p.name == "bridge.json" else p.stem.split("-", 1)[1]
+        found.append({"name": name, "st": st})
+    found.sort(key=lambda x: (x["name"] != INSTANCE, x["name"]))
+    return found
+
+
 @app.get("/local")
 async def local_info(request: Request):
-    """Страница для этого же компа: адрес сервера и токен. Только с localhost."""
+    """Хаб: все мосты на этом компьютере — адреса, токены, состояние. Только с localhost."""
     host = request.client.host if request.client else ""
     if host not in ("127.0.0.1", "::1", "localhost"):
         raise HTTPException(404, "not found")
-    pub = state.get("public_url") or ""
-    link = f"{pub}/?token={TOKEN}" if pub else ""
-    html = f"""<!doctype html><meta charset="utf-8"><title>Assi — подключение</title>
-<style>body{{background:#080809;color:#e6e6e6;font:15px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:28px;max-width:720px}}
-h1{{font-size:19px;font-weight:600}} code{{background:#14161b;padding:2px 6px;border-radius:5px;color:#7cc4ff;word-break:break-all}}
-.row{{margin:16px 0;padding:14px;border:1px solid #1d2027;border-radius:10px}} .k{{color:#8b93a1;font-size:12px;text-transform:uppercase;letter-spacing:.08em}}
-a{{color:#7cc4ff}}</style>
-<h1>Подключение приложения Assi</h1>
-<div class="row"><div class="k">адрес сервера</div><code>{pub or 'http://127.0.0.1:8787'}</code></div>
-<div class="row"><div class="k">токен</div><code>{TOKEN}</code></div>
-{f'<div class="row"><div class="k">ссылка сразу с токеном</div><a href="{link}">{link}</a></div>' if link else ''}
-<p style="color:#8b93a1">В приложении: адрес — верхняя строка, токен — вторая. Если сервер за туннелем, адрес будет вида <code>https://assi.example.com</code>.</p>"""
-    return HTMLResponse(html)
+
+    from html import escape
+    cards = []
+    for item in hub_instances():
+        st = item["st"]
+        name = escape(item["name"])
+        pub = (st.get("public_url") or "").rstrip("/")
+        port = st.get("port") or (8787 if item["name"] == "assi" else "")
+        tok = st.get("token") or ""
+        link = f"{pub}/?token={tok}" if pub and tok else ""
+        alive = False
+        if port:
+            try:
+                async with httpx.AsyncClient(timeout=2) as hc:
+                    r = await hc.get(f"http://127.0.0.1:{port}/api/ping")
+                    alive = r.status_code == 200 and '"ok"' in r.text
+            except Exception:
+                alive = False
+        pill = ('<span class="pill ok"><i></i>отвечает</span>' if alive
+                else '<span class="pill bad"><i></i>не отвечает</span>')
+        qr_id = "qr-" + item["name"]
+        cards.append(f"""
+        <article class="card">
+          <div class="top">
+            <span class="name">{name}</span>{pill}
+            <span class="port">{'порт ' + str(port) if port else ''}</span>
+          </div>
+          <div class="field"><span class="k">адрес сервера</span>
+            <span class="val">{escape(pub or '—')}</span></div>
+          <div class="field"><span class="k">токен</span>
+            <span class="val"><span id="tok-{name}" class="mask" data-token="{escape(tok)}">{'•' * 14}</span></span></div>
+          <div class="acts">
+            <button class="btn mini" data-reveal="tok-{name}" type="button">показать</button>
+            <button class="btn mini" data-copy="{escape(tok)}" type="button">{COPY_ICON}копировать</button>
+            {f'<a class="btn mini primary" href="{escape(link)}" target="_blank" rel="noopener">{OPEN_ICON}открыть чат</a>' if link else ''}
+            {f'<button class="btn mini" data-qr="{qr_id}" type="button">QR</button>' if link else ''}
+          </div>
+          {f'<div class="qr" id="{qr_id}">{qr_svg(link)}<div class="cap">наведи камеру телефона —<br>страница откроется с токеном</div></div>' if link else ''}
+        </article>""")
+
+    apk_note = ""
+    if APK_PATH.exists():
+        kb = APK_PATH.stat().st_size // 1024
+        when = datetime.datetime.fromtimestamp(APK_PATH.stat().st_mtime).strftime("%d.%m %H:%M")
+        apk_note = f"{kb} КБ · собран {when}"
+
+    lan = ""
+    ips = lan_ips()
+    for pref in ("192.168.", "10.", "172."):
+        hit = next((ip for ip in ips if ip.startswith(pref)), None)
+        if hit:
+            lan = hit
+            break
+    html_page = f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Assi Hub — мосты на этом компьютере</title>
+<style>{HUB_CSS}</style></head>
+<body><div class="wrap">
+<header>
+  <div>
+    <h1><span class="dot">◆</span> Assi Hub</h1>
+    <p class="sub">мосты и токены · только этот компьютер</p>
+  </div>
+  <a class="btn primary" href="/apk">{APK_ICON}скачать APK</a>
+</header>
+<div class="grid">{''.join(cards)}</div>
+<footer>
+  <b>Приложение:</b> адрес — строка «адрес сервера», токен — кнопкой «копировать». {apk_note}<br>
+  <b>Та же сеть без туннеля:</b> {f'http://{escape(lan)}:{BIND[1]} — если телефон в одном Wi-Fi с ноутом.' if lan else 'нет сетевого адреса.'}<br>
+  <b>Наружу:</b> через cloudflared-туннель, домены вида https://assi.assi.pro.
+</footer>
+</div><div id="toast" class="toast"></div>
+<script>{HUB_JS}</script></body></html>"""
+    return HTMLResponse(html_page)
 
 
 app.mount("/", StaticFiles(directory=ROOT / "static"), name="static")

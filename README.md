@@ -1,35 +1,106 @@
-# Асси Bridge
+# Assi Bridge
 
-Мост между телефоном и ПК: PWA-чат, который ходит в headless-сервер OpenCode
-через HTTP API. Файлы с телефона складываются в `Inbox`, голос распознаётся
-локально (faster-whisper), ответы приходят потоком по SSE.
+Мост между телефоном и компьютером: телефон становится пультом для [OpenCode](https://opencode.ai) — чат с агентом, файлы и фото, голосовой ввод, управление питанием ПК.
 
-## Что внутри
+<p align="center"><img src="docs/hub.png" alt="Assi Hub — страница /local" width="820"></p>
 
-| Файл | Назначение |
-|---|---|
-| `app.py` | FastAPI: поднимает `opencode serve`, проксирует чат/историю/SSE, принимает файлы и голос |
-| `static/index.html` | SPA-чат: инкрементальный рендер, markdown, стриминг, запись с микрофона |
-| `static/sw.js` | service worker: оболочка из кэша, `/api/*` всегда из сети |
-| `static/manifest.webmanifest` | манифест PWA («Асси», standalone) |
-| `make_icons.py` | генерация иконок приложения на Pillow |
-| `probe.py` | диагностический стенд для API OpenCode |
-| `peek.py` | снимок состояния сессии (сообщения, время, ошибки) |
+## Что умеет
 
-## Запуск
+- **Чат** с агентом OpenCode из браузера или приложения (SSE-стриминг ответа, markdown, история сессий, переключение и создание чатов).
+- **Файлы с телефона** — загрузка и отправка агенту, картинки приходят превью.
+- **Голос** — запись в браузере, расшифровка локально через `faster-whisper` (без внешних сервисов).
+- **Питание ПК** — сон, блокировка, перезагрузка, выключение, а также **Wake-on-LAN** (шлёт само приложение, когда сервер спит).
+- **Сторож связи** — приложение пингует `/api/ping`; если ноут уснул, показывает «Разбудить ноут» вместо ошибки Cloudflare.
+- **Хаб `/local`** — локальная страница со всеми мостами: адрес, токен, статус, QR-код, кнопка скачать APK.
+- **Несколько экземпляров** — каждый со своим портом, токеном, доменом и историей (переменные окружения).
+
+## Быстрый старт
 
 ```powershell
-cd $env:USERPROFILE\tools\mobile-bridge
-$env:PYTHONUTF8="1"
-.\.venv\Scripts\python.exe app.py
+git clone https://github.com/F0RN1/assi-bridge.git
+cd assi-bridge
+powershell -ExecutionPolicy Bypass -File install-assi.ps1
 ```
 
-Мост слушает `0.0.0.0:8787`, сам поднимает `opencode serve` на `127.0.0.1:8790`
-и печатает в лог адреса для телефона и токен доступа.
+Скрипт проверит Python (нет — поставит через winget), создаст `.venv`, поставит зависимости, запустит мост и откроет `http://127.0.0.1:8787/local` с адресом и токеном.
 
-Токен и пароль сервера лежат в `bridge.json` (в репозиторий не попадает).
+Флаг `-Autostart` добавит ярлык в автозагрузку.
 
-## Стек
+Требуется установленный и авторизованный **OpenCode** — мост поднимает `opencode serve` сам.
 
-Python 3.12, FastAPI, uvicorn, httpx, faster-whisper (`small`, cpu, int8),
-PyAV 13 (более новые ломают декодирование в faster-whisper 1.2.1).
+## Доступ снаружи
+
+Мост слушает `127.0.0.1`-порты и наружу сам не смотрит. Для интернета — туннель Cloudflare:
+
+```yaml
+# %USERPROFILE%\.cloudflared\config.yml
+tunnel: <tunnel-id>
+credentials-file: C:\Users\<user>\.cloudflared\<tunnel-id>.json
+protocol: http2
+edge-ip-version: "4"
+
+ingress:
+  - hostname: assi.example.com
+    service: http://127.0.0.1:8787
+  - service: http_status:404
+```
+
+`protocol: http2` + IPv4 — не Cosmetic: на QUIC (UDP) туннель у части провайдеров рвётся и запросы висят по 30 секунд.
+
+## Второй экземпляр (для друга, теста)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File start-friend.ps1
+```
+
+| Переменная | По умолчанию | Что задаёт |
+|---|---|---|
+| `ASSI_INSTANCE` | `assi` | имя экземпляра: `bridge-<имя>.json`, `client-<имя>.log`, `~/Inbox/<имя>` |
+| `ASSI_PORT` | `8787` | порт HTTP |
+| `ASSI_OPENCODE_PORT` | `8790` | порт `opencode serve` для этого экземпляра |
+| `ASSI_PUBLIC_URL` | `https://assi.assi.pro` | адрес, который показывается на `/local` |
+
+У каждого экземпляра свой токен, своя сессия и своя папка входящих — чаты не пересекаются.
+
+## API
+
+| Метод | Путь | Назначение |
+|---|---|---|
+| `GET` | `/api/ping` | проверка живости (без токена) |
+| `GET` | `/api/history` | история текущей сессии |
+| `POST` | `/api/chat` | отправить сообщение агенту |
+| `GET` | `/api/stream?t=<token>` | SSE: дельты текста и завершение |
+| `GET` | `/api/sessions` | список сессий, `POST /api/session/new`, `/api/session/select` |
+| `POST` | `/api/upload` | файл с телефона → локальный путь |
+| `POST` | `/api/transcribe` | аудио → текст (faster-whisper) |
+| `POST` | `/api/power` | `lock` / `sleep` / `reboot` / `shutdown` |
+| `GET` | `/api/wol-info` | MAC и broadcast-адреса для Wake-on-LAN |
+| `GET` | `/apk` | свежий APK приложения |
+| `GET` | `/local` | хаб с токенами — **только с localhost** |
+
+Авторизация — заголовок `X-Bridge-Token` (или `?t=` для SSE).
+
+## Безопасность
+
+- Токен — единственный ключ ко всему: файлы, сессии, память агента, питание ПК. Никому не передавайте.
+- `/local` отдаётся только на `127.0.0.1` — снаружи 404.
+- `bridge.json`, `bridge-friend.json`, логи и `.venv` в `.gitignore`.
+
+## Структура
+
+```
+app.py                  FastAPI: OpenCode, чат, SSE, загрузки, питание, WOL, /local
+static/index.html       интерфейс чата (терминальная тема)
+static/sw.js            service worker: оболочка из кэша, /api — всегда в сеть
+static/manifest.webmanifest  PWA-манифест
+install-assi.ps1        установка в один запуск
+start-assi.ps1          запуск основного моста + туннеля
+start-friend.ps1        второй экземпляр (8788)
+requirements.txt        зависимости
+```
+
+Приложение: [F0RN1/assi-app](https://github.com/F0RN1/assi-app).
+
+## Лицензия
+
+MIT
