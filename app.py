@@ -1,13 +1,11 @@
 ﻿"""Мост телефон <-> OpenCode. FastAPI + PWA + faster-whisper."""
-import asyncio, base64, json, os, re, secrets, shutil, socket, subprocess, sys, time, datetime
+import asyncio, base64, json, os, re, secrets, shutil, socket, subprocess, sys, tempfile, time, uuid, datetime
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-
-import os
 
 ROOT = Path(__file__).parent
 # Экземпляр можно запускать по несколько: параметры через переменные окружения.
@@ -300,7 +298,7 @@ async def stream(request: Request, t: str | None = None):
         try:
             async with c.stream("GET", "/api/event", params=params) as r:
                 if r.status_code != 200:
-                    yield 'data: {"type":"bridge.error","data":{"message":"upstream "}}' + "\n\n"
+                    yield 'data: ' + json.dumps({"type": "bridge.error", "data": {"message": f"upstream {r.status_code}"}}, ensure_ascii=False) + "\n\n"
                     return
                 async for line in r.aiter_lines():
                     if not line.startswith("data:"):
@@ -445,7 +443,8 @@ async def transcribe(request: Request, file: UploadFile = File(...), seconds: st
     if _whisper is None:
         from faster_whisper import WhisperModel
         _whisper = WhisperModel("small", device="cpu", compute_type="int8")
-    tmp = Path(os.environ["TEMP"]) / f"voice-{int(time.time())}-{file.filename or 'a.webm'}"
+    # имя файла санитизируем (без .name путь с ..\ выносит запись вне каталога) + uuid от коллизий
+    tmp = Path(tempfile.gettempdir()) / f"voice-{uuid.uuid4().hex}-{Path(file.filename or 'a.webm').name}"
     with tmp.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     try:
