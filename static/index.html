@@ -181,6 +181,33 @@
   .sess:active { background:var(--raised); }
   .sess.cur { background:#bbf3510f; border-color:#bbf35133; }
   .sess.cur .t { color:var(--lime); }
+
+  /* ----- файлы ПК -> телефон ----- */
+  #files { position:fixed; inset:0; background:var(--bg); z-index:60; display:none; flex-direction:column; }
+  #files.on { display:flex; }
+  .fhead { display:flex; align-items:center; gap:10px; padding:calc(12px + env(safe-area-inset-top)) 14px 10px;
+           border-bottom:1px solid var(--line); }
+  .fhead .ttl { font:600 15px var(--ui); }
+  .crumbs { display:flex; overflow-x:auto; gap:6px; padding:8px 14px; border-bottom:1px solid var(--line);
+            scrollbar-width:none; }
+  .crumbs::-webkit-scrollbar { display:none; }
+  .crumb { flex:none; font:500 12px var(--mono); color:var(--dim); padding:6px 9px; border-radius:8px;
+           background:var(--surface); border:1px solid var(--line); max-width:170px;
+           overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .crumb:last-child { color:var(--lime); border-color:#bbf3513d; }
+  #flist { flex:1; overflow-y:auto; padding-bottom:24px; }
+  .frow { display:flex; align-items:center; gap:12px; padding:11px 16px; border-bottom:1px solid #1a1f26; }
+  .frow:active { background:var(--raised); }
+  .frow .ic { width:32px; height:32px; flex:none; display:grid; place-items:center; border-radius:9px;
+              background:var(--surface); border:1px solid var(--line); color:var(--dim); }
+  .frow.dir .ic { color:var(--lime); border-color:#bbf35133; background:#bbf3510f; }
+  .frow .nn { flex:1; min-width:0; }
+  .frow .nm { font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .frow .meta { font:11.5px var(--mono); color:var(--dim); margin-top:2px; }
+  .frow .dl { flex:none; width:40px; height:40px; border-radius:11px; background:#bbf35114;
+              border:1px solid #bbf35140; color:var(--lime); display:grid; place-items:center; }
+  .fnote { padding:14px 16px; font-size:12.5px; color:var(--dim); }
+  a.dlfile { color:var(--cyan); text-decoration:none; border-bottom:1px dashed #00bcff66; word-break:break-all; }
 </style>
 </head>
 <body>
@@ -195,6 +222,11 @@
     <div class="nm">Assi</div>
     <div class="st" id="stat">ждёт</div>
   </div>
+  <button id="fs" title="файлы" aria-label="файлы компьютера">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7.5A2.5 2.5 0 015.5 5h3.2l2 2.4h7.8A2.5 2.5 0 0121 10v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7.5z"/>
+    </svg>
+  </button>
   <button id="pw" title="питание" aria-label="питание">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1011.2 0"/>
@@ -242,6 +274,19 @@
       Сменить сервер
     </div>
   </div>
+</div>
+
+<div id="files" role="dialog" aria-label="файлы компьютера">
+  <div class="fhead">
+    <button id="fclose" aria-label="закрыть">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M15 5l-7 7 7 7"/>
+      </svg>
+    </button>
+    <div class="ttl">Файлы компьютера</div>
+  </div>
+  <div class="crumbs" id="crumbs"></div>
+  <div id="flist"></div>
 </div>
 
 <div id="setup">
@@ -430,6 +475,7 @@ function paintNode(d, m) {
     if (d._sig === sig) return false;
     d._sig = sig;
     d._text.innerHTML = md(m.text || '');
+    linkPaths(d._text);
     d.querySelectorAll('.att').forEach(n => n.remove());
     if (m.files && m.files.length) {
       const box = document.createElement('div');
@@ -459,9 +505,11 @@ function paintNode(d, m) {
     d._text.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
   } else if (m.done) {
     d._text.innerHTML = md(m.text);
+    linkPaths(d._text);
     d._text.classList.remove('caret');
   } else {
     d._text.innerHTML = md(m.text);
+    linkPaths(d._text);
     d._text.classList.add('caret');
   }
   d.classList.toggle('pending', !m.done);
@@ -714,6 +762,134 @@ $('file').onchange = async e => {
   setStat('ждёт', false);
   e.target.value = '';
 };
+
+/* ---------- файлы компьютера -> телефон ---------- */
+const fsBox = $('files'), fsList = $('flist'), fsCrumbs = $('crumbs');
+let fsPaths = [];
+
+function fsOpen() { fsBox.classList.add('on'); fsLoad(fsPaths.length ? fsPaths[fsPaths.length - 1] : ''); }
+function fsClose() { fsBox.classList.remove('on'); }
+
+function fsSize(n) {
+  const u = ['Б', 'КБ', 'МБ', 'ГБ']; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : n.toFixed(0)) + ' ' + u[i];
+}
+
+function fsCrumbsRender(p) {
+  fsCrumbs.innerHTML = '';
+  const mk = (label, path) => {
+    const b = document.createElement('button');
+    b.className = 'crumb'; b.textContent = label; b.dataset.path = path;
+    fsCrumbs.appendChild(b);
+  };
+  mk('Компьютер', '');
+  if (p) {
+    const parts = p.split(/[\\/]+/).filter(Boolean);
+    let acc = '';
+    parts.forEach((seg, i) => {
+      acc += (i === 0 && /^[A-Za-z]:$/.test(seg)) ? seg + '\\' : (acc.endsWith('\\') || acc === '' ? seg : '\\' + seg);
+      mk(seg, acc);
+    });
+  }
+  fsCrumbs.scrollLeft = fsCrumbs.scrollWidth;
+}
+
+function fsIcon(dir, ext) {
+  if (dir) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 015.5 5h3.2l2 2.4h7.8A2.5 2.5 0 0121 10v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7.5z"/></svg>';
+  if (['jpg','jpeg','png','gif','webp','bmp'].includes(ext)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 18l5-5 3.5 3.5L16 13l4 4"/></svg>';
+  if (['mp4','mkv','mov','avi','webm'].includes(ext)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/></svg>';
+  if (['mp3','wav','flac','ogg','m4a'].includes(ext)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2.4"/><circle cx="17" cy="16" r="2.4"/></svg>';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/></svg>';
+}
+
+function fsRow(e) {
+  const row = document.createElement('div');
+  row.className = 'frow' + (e.dir ? ' dir' : '');
+  const ic = document.createElement('div'); ic.className = 'ic'; ic.innerHTML = fsIcon(e.dir, e.ext || '');
+  const nn = document.createElement('div'); nn.className = 'nn';
+  const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = e.name;
+  const meta = document.createElement('div'); meta.className = 'meta';
+  meta.textContent = e.dir ? 'папка' : [e.size_text, e.mtime ? new Date(e.mtime * 1000).toLocaleDateString('ru-RU') : ''].filter(Boolean).join(' · ');
+  nn.append(nm, meta);
+  row.append(ic, nn);
+  if (e.dir) {
+    row.onclick = () => fsLoad(e.path);
+  } else {
+    const dl = document.createElement('button');
+    dl.className = 'dl'; dl.title = 'скачать на телефон';
+    dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>';
+    dl.onclick = ev => { ev.stopPropagation(); fsDownload(e.path); };
+    row.append(dl);
+    row.onclick = () => fsDownload(e.path);
+  }
+  return row;
+}
+
+function fsDownload(path) {
+  if (!token) return;
+  setStat('качаю…', true);
+  location.href = '/api/fs/download?t=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(path);
+  setTimeout(() => setStat('ждёт', false), 1500);
+}
+
+async function fsLoad(path) {
+  if (!token) return;
+  fsList.innerHTML = '<div class="fnote">читаю папку…</div>';
+  try {
+    const r = await api('/api/fs/list' + (path ? '?path=' + encodeURIComponent(path) : ''));
+    fsPaths = path ? (fsPaths.includes(r.path) ? fsPaths.slice(0, fsPaths.indexOf(r.path) + 1) : fsPaths.concat(r.path)) : [];
+    fsCrumbsRender(r.path || '');
+    fsList.innerHTML = '';
+    if (!r.entries.length) { fsList.innerHTML = '<div class="fnote">папка пустая</div>'; return; }
+    r.entries.forEach(e => fsList.appendChild(fsRow(e)));
+  } catch (err) {
+    fsList.innerHTML = '<div class="fnote">не открылось: ' + esc(err.message) + '</div>';
+  }
+}
+
+/* абсолютные пути в ответах агента делаем ссылкой «скачать на телефон» */
+const PATH_RE = /[A-Za-z]:\\[^\s<>"'`]{3,}/g;
+function linkPaths(el) {
+  if (!el) return;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const texts = [];
+  while (walker.nextNode()) texts.push(walker.currentNode);
+  texts.forEach(t => {
+    const s = t.nodeValue || '';
+    if (s.indexOf(':\\') < 0) return;
+    PATH_RE.lastIndex = 0;
+    if (!PATH_RE.test(s)) return;
+    PATH_RE.lastIndex = 0;
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    while ((m = PATH_RE.exec(s))) {
+      const raw = m[0].replace(/[.,;:)\]]+$/, '');
+      if (raw.length < 6) continue;
+      frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+      const a = document.createElement('a');
+      a.className = 'dlfile'; a.href = '#'; a.textContent = raw; a.dataset.path = raw;
+      frag.appendChild(a);
+      last = m.index + raw.length;
+    }
+    if (!last) return;
+    frag.appendChild(document.createTextNode(s.slice(last)));
+    t.parentNode.replaceChild(frag, t);
+  });
+}
+
+$('fs').onclick = fsOpen;
+$('fclose').onclick = fsClose;
+fsCrumbs.addEventListener('click', e => {
+  const b = e.target.closest('.crumb');
+  if (b) fsLoad(b.dataset.path || '');
+});
+log.addEventListener('click', e => {
+  const a = e.target.closest('a.dlfile');
+  if (!a) return;
+  e.preventDefault();
+  fsDownload(a.dataset.path);
+});
 
 /* ---------- питание ---------- */
 const NAMES = { wake: 'Разбудить ноут (WOL)?', lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?' };

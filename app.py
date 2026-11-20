@@ -415,6 +415,95 @@ async def get_file(request: Request, path: str, t: str | None = None, token: str
     return FileResponse(p, media_type=MEDIA.get(p.suffix.lower()))
 
 
+# ---------- файлы ПК -> телефон ----------
+
+def _human_size(n: int) -> str:
+    for unit in ("Б", "КБ", "МБ", "ГБ"):
+        if n < 1024 or unit == "ГБ":
+            return f"{n:.0f} {unit}" if unit == "Б" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.0f}"
+
+
+def _fs_guard(raw: str) -> Path:
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        raise HTTPException(400, "нужен абсолютный путь")
+    rp = p.resolve()
+    if os.name == "nt":
+        blocked = [Path(f"{d}:\\{s}") for d in "CDEFGHIJ" for s in ("Windows", "$Recycle.Bin", "System Volume Information")]
+        for b in blocked:
+            try:
+                rp.relative_to(b)
+                raise HTTPException(403, "системная папка")
+            except ValueError:
+                pass
+    return rp
+
+
+@app.get("/api/fs/list")
+async def fs_list(request: Request, path: str = "",
+                  token: str | None = Header(default=None, alias="X-Bridge-Token"),
+                  t: str | None = None):
+    """Проводник по компьютеру: без path — список дисков и быстрых папок."""
+    auth(request, token or t)
+    if not path.strip():
+        entries = []
+        if os.name == "nt":
+            for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+                d = Path(f"{letter}:\\")
+                if d.exists():
+                    entries.append({"name": f"Локальный диск ({letter}:)", "path": str(d), "dir": True})
+        home = Path.home()
+        for label, sub in (("Загрузки", "Downloads"), ("Изображения", "Pictures"),
+                           ("Документы", "Documents"), ("Рабочий стол", "Desktop")):
+            d = home / sub
+            if d.is_dir():
+                entries.append({"name": label, "path": str(d), "dir": True, "quick": True})
+        entries.append({"name": "Домашняя папка", "path": str(home), "dir": True, "quick": True})
+        return {"path": "", "parent": None, "entries": entries}
+
+    p = _fs_guard(path)
+    if not p.is_dir():
+        raise HTTPException(404, "нет такой папки")
+    entries = []
+    try:
+        for it in p.iterdir():
+            try:
+                st = it.stat()
+                is_dir = it.is_dir()
+                if it.name in ("$Recycle.Bin", "System Volume Information"):
+                    continue
+                entries.append({
+                    "name": it.name,
+                    "path": str(it),
+                    "dir": is_dir,
+                    "size": 0 if is_dir else st.st_size,
+                    "size_text": "" if is_dir else _human_size(st.st_size),
+                    "mtime": int(st.st_mtime),
+                    "ext": "" if is_dir else it.suffix.lower().lstrip("."),
+                })
+            except (PermissionError, OSError):
+                continue
+    except PermissionError:
+        raise HTTPException(403, "нет доступа")
+    entries.sort(key=lambda e: (not e["dir"], e["name"].casefold()))
+    parent = str(p.parent) if p.parent != p else None
+    return {"path": str(p), "parent": parent, "entries": entries[:800]}
+
+
+@app.get("/api/fs/download")
+async def fs_download(request: Request, path: str, t: str | None = None,
+                      token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Отдаёт файл с ПК на телефон (токен можно ?t= — так скачивает DownloadManager в приложении)."""
+    auth(request, token or t)
+    p = _fs_guard(path)
+    if not p.is_file():
+        raise HTTPException(404, "нет файла")
+    return FileResponse(p, media_type=MEDIA.get(p.suffix.lower()),
+                        filename=p.name, headers={"X-Content-Type-Options": "nosniff"})
+
+
 @app.post("/api/upload")
 async def upload(request: Request, file: UploadFile = File(...), token: str | None = Header(default=None, alias="X-Bridge-Token")):
     auth(request, token)
