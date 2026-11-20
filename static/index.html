@@ -819,17 +819,26 @@ function fsRow(e) {
     const dl = document.createElement('button');
     dl.className = 'dl'; dl.title = 'скачать на телефон';
     dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>';
-    dl.onclick = ev => { ev.stopPropagation(); fsDownload(e.path); };
+    dl.onclick = ev => { ev.stopPropagation(); fsDownload(e.path, e.name); };
     row.append(dl);
-    row.onclick = () => fsDownload(e.path);
+    row.onclick = () => fsDownload(e.path, e.name);
   }
   return row;
 }
 
-function fsDownload(path) {
+function fsDownload(path, name) {
   if (!token) return;
   setStat('качаю…', true);
-  location.href = '/api/fs/download?t=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(path);
+  const url = '/api/fs/download?t=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(path);
+  const base = name || path.split(/[\\/]/).pop() || 'file';
+  const abs = location.origin + url;   // DownloadManager требует абсолютный http(s)
+  if (window.AssiNative && AssiNative.download) {
+    try { AssiNative.download(abs, base); logc('dl: ' + base); }
+    catch (e) { logc('dl err: ' + e); location.href = url; }
+  } else {
+    logc('dl web: ' + base);
+    location.href = url;
+  }
   setTimeout(() => setStat('ждёт', false), 1500);
 }
 
@@ -888,7 +897,7 @@ log.addEventListener('click', e => {
   const a = e.target.closest('a.dlfile');
   if (!a) return;
   e.preventDefault();
-  fsDownload(a.dataset.path);
+  fsDownload(a.dataset.path, a.dataset.path.split(/[\\/]/).pop());
 });
 
 /* ---------- питание ---------- */
