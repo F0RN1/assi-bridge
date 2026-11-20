@@ -195,6 +195,7 @@ async def assetlinks():
 
 
 CLIENT_LOG = ROOT / (f"client{'' if INSTANCE == 'assi' else '-' + INSTANCE}.log")
+SHARE_DIR = ROOT / ("shared" if INSTANCE == "assi" else f"shared-{INSTANCE}")
 
 
 @app.post("/api/clientlog")
@@ -502,6 +503,86 @@ async def fs_download(request: Request, path: str, t: str | None = None,
         raise HTTPException(404, "нет файла")
     return FileResponse(p, media_type=MEDIA.get(p.suffix.lower()),
                         filename=p.name, headers={"X-Content-Type-Options": "nosniff"})
+
+
+@app.post("/api/fs/upload")
+async def fs_upload(request: Request, path: str, file: UploadFile = File(...),
+                    t: str | None = None, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Кладёт файл с телефона прямо в выбранную папку компьютера — без участия агента."""
+    auth(request, token or t)
+    dest = _fs_guard(path)
+    if not dest.is_dir():
+        raise HTTPException(404, "нет такой папки")
+    name = Path(file.filename or "file").name
+    target = dest / name
+    i = 1
+    while target.exists():
+        target = dest / f"{Path(name).stem}-{i}{Path(name).suffix}"
+        i += 1
+    try:
+        with target.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except PermissionError:
+        raise HTTPException(403, "нет доступа к папке")
+    return {"ok": True, "name": target.name, "path": str(target),
+            "size": target.stat().st_size, "size_text": _human_size(target.stat().st_size)}
+
+
+@app.post("/api/share")
+async def share_add(request: Request, file: UploadFile = File(...),
+                    token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Компьютер → телефон: файл кладётся в очередь, приложение забирает его само."""
+    auth(request, token)
+    SHARE_DIR.mkdir(parents=True, exist_ok=True)
+    sid = uuid.uuid4().hex[:12]
+    name = Path(file.filename or "file").name
+    target = SHARE_DIR / f"{sid}__{name}"
+    with target.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    item = {"id": sid, "name": name, "size": target.stat().st_size,
+            "size_text": _human_size(target.stat().st_size), "ts": int(time.time())}
+    state.setdefault("share", []).append(item)
+    save_state()
+    return {"ok": True, **item}
+
+
+@app.get("/api/share")
+async def share_list(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token"),
+                     t: str | None = None):
+    auth(request, token or t)
+    items = [it for it in state.get("share", []) if (SHARE_DIR / f"{it['id']}__{it['name']}").exists()]
+    return {"items": items}
+
+
+@app.get("/api/share/{sid}")
+async def share_get(sid: str, request: Request, t: str | None = None,
+                    token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    auth(request, token or t)
+    for it in state.get("share", []):
+        if it["id"] == sid:
+            p = SHARE_DIR / f"{sid}__{it['name']}"
+            if p.is_file():
+                return FileResponse(p, filename=it["name"],
+                                    headers={"X-Content-Type-Options": "nosniff"})
+    raise HTTPException(404, "нет файла")
+
+
+@app.post("/api/share/{sid}/ack")
+async def share_ack(sid: str, request: Request,
+                    token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    auth(request, token)
+    kept = []
+    for it in state.get("share", []):
+        if it["id"] == sid:
+            try:
+                (SHARE_DIR / f"{sid}__{it['name']}").unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+        kept.append(it)
+    state["share"] = kept
+    save_state()
+    return {"ok": True}
 
 
 @app.post("/api/upload")

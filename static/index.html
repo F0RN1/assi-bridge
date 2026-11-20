@@ -113,6 +113,15 @@
   button.send { background:var(--lime); border-color:var(--lime); color:#08090b; }
   button.send svg { stroke:#08090b; }
   button.send:disabled { opacity:.4; }
+  /* одна кнопка: пусто — микрофон, есть текст/файлы — отправка */
+  #act { background:var(--raised); border:1px solid var(--line); color:var(--dim); }
+  #act .i-send { display:none; }
+  #act.send { background:var(--lime); border-color:var(--lime); color:#08090b; }
+  #act.send .i-mic { display:none; }
+  #act.send .i-send { display:block; }
+  #act.rec { background:var(--danger); border-color:var(--danger); color:#fff; }
+  #act.rec .i-send { display:none; }
+  #act.rec .i-mic { display:block; }
   button.rec { background:var(--danger); border-color:var(--danger); color:#fff;
                animation:pulse 1.15s infinite; }
   button.rec svg { stroke:#fff; }
@@ -188,6 +197,9 @@
   .fhead { display:flex; align-items:center; gap:10px; padding:calc(12px + env(safe-area-inset-top)) 14px 10px;
            border-bottom:1px solid var(--line); }
   .fhead .ttl { font:600 15px var(--ui); }
+  .fhead #fup { margin-left:auto; width:40px; height:40px; min-width:40px; border-radius:11px;
+                background:#00bcff14; border:1px solid #00bcff40; color:var(--cyan); display:grid; place-items:center; }
+  .fhead #fup:active { background:#00bcff24; }
   .crumbs { display:flex; overflow-x:auto; gap:6px; padding:8px 14px; border-bottom:1px solid var(--line);
             scrollbar-width:none; }
   .crumbs::-webkit-scrollbar { display:none; }
@@ -284,6 +296,11 @@
       </svg>
     </button>
     <div class="ttl">Файлы компьютера</div>
+    <button id="fup" title="залить файл с телефона в эту папку" aria-label="залить файл с телефона в эту папку">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20V8"/><path d="M7 13l5-5 5 5"/><path d="M5 4h14"/>
+      </svg>
+    </button>
   </div>
   <div class="crumbs" id="crumbs"></div>
   <div id="flist"></div>
@@ -307,15 +324,13 @@
       <path d="M21.4 11.05l-8.6 8.6a5.5 5.5 0 01-7.78-7.78l8.6-8.6a3.7 3.7 0 015.23 5.23l-8.6 8.6a1.85 1.85 0 01-2.62-2.62l7.9-7.9"/>
     </svg>
   </button>
-  <button id="mic" title="голос" aria-label="записать голос">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+  <textarea id="text" rows="1" placeholder="написать…"></textarea>
+  <button id="act" title="голос" aria-label="записать голос">
+    <svg class="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
       <rect x="9" y="3" width="6" height="11" rx="3"/>
       <path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"/>
     </svg>
-  </button>
-  <textarea id="text" rows="1" placeholder="написать…"></textarea>
-  <button id="send" class="send" title="отправить" aria-label="отправить">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg class="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 19V5M6 11l6-6 6 6"/>
     </svg>
   </button>
@@ -323,6 +338,7 @@
 <button id="jump" title="вниз" aria-label="вниз">
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
 </button>
+<input id="fsfile" type="file" multiple hidden>
 <input id="file" type="file" multiple hidden>
 
 <script>
@@ -576,6 +592,7 @@ async function send() {
   const files = pendingFiles.slice();
   pendingFiles = []; renderChips();
   $('text').value = ''; $('text').style.height = '42px';
+  actMode();
   busy = true;
   setStat('думает…', true);
   const guess = { role: 'user', text, files: files.map(f => f.path) };
@@ -663,6 +680,8 @@ function renderChips() {
   $('chips').innerHTML = pendingFiles.map(f => `<span class="chip"><b>▤</b> ${esc(f.name)}</span>`).join('');
 }
 
+try { actMode(); } catch (_) {}
+
 /* ---------- список чатов ---------- */
 let sessions = [];
 
@@ -735,7 +754,24 @@ $('newchat').onclick = async () => {
 };
 
 /* ---------- обработчики ---------- */
-$('send').onclick = send;
+function actMode() {
+  const on = !!($('text').value.trim() || pendingFiles.length);
+  $('act').classList.toggle('send', on);
+  const lbl = on ? 'отправить' : 'записать голос';
+  $('act').setAttribute('aria-label', lbl);
+  $('act').title = on ? 'отправить' : 'голос';
+}
+$('text').addEventListener('input', actMode);
+$('act').addEventListener('pointerdown', e => {
+  if ($('act').classList.contains('send')) return;
+  e.preventDefault();
+  micStart();
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(t =>
+  $('act').addEventListener(t, () => { if (!$('act').classList.contains('send')) micStop(); }));
+$('act').addEventListener('click', e => {
+  if ($('act').classList.contains('send')) { e.preventDefault(); send(); }
+});
 $('text').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
 });
@@ -889,6 +925,32 @@ function linkPaths(el) {
 
 $('fs').onclick = fsOpen;
 $('fclose').onclick = fsClose;
+$('fup').onclick = () => {
+  if (!fsPaths.length) { setStat('сначала открой папку', false); return; }
+  $('fsfile').click();
+};
+$('fsfile').onchange = async e => {
+  const dir = fsPaths[fsPaths.length - 1];
+  if (!dir) return;
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  let done = 0;
+  for (const f of files) {
+    setStat('загружаю ' + f.name + '…', true);
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const r = await api('/api/fs/upload?path=' + encodeURIComponent(dir), { method: 'POST', body: fd });
+      done++;
+      logc('up: ' + r.path);
+    } catch (err) {
+      setStat('не залилось: ' + err.message, false);
+    }
+  }
+  if (navigator.vibrate) navigator.vibrate(20);
+  setStat(done ? 'в папке: ' + done + ' файл(ов)' : 'ждёт', false);
+  fsLoad(dir);
+};
 fsCrumbs.addEventListener('click', e => {
   const b = e.target.closest('.crumb');
   if (b) fsLoad(b.dataset.path || '');
@@ -945,9 +1007,7 @@ if (window.AssiNative) {
 }
 
 /* ---------- микрофон ---------- */
-let rec = null, chunks = [], recStart = 0;
-const MIC_SVG = $('mic').innerHTML;
-const STOP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
+let rec = null, chunks = [], recStart = 0, recStarting = false;
 
 function logc(msg) {
   try {
@@ -963,13 +1023,20 @@ logc('загрузка: secure=' + window.isSecureContext + ' mediaDevices=' + !
      ' micOk=' + micOk + ' MediaRecorder=' + (typeof MediaRecorder) +
      ' href=' + location.href + ' sw=' + (navigator.serviceWorker && navigator.serviceWorker.controller ? 'yes' : 'no') +
      ' ua=' + navigator.userAgent.slice(0, 60));
-if (!micOk) { $('mic').style.opacity = '0.45'; $('mic').title = 'нужен https'; }
+if (!micOk) { $('act').title = 'микрофон только на https'; }
 
 /* Микрофон открывается только по нажатию и освобождается сразу после записи:
    иначе система считает, что идёт звонок, и портит вывод звука (музыка в наушниках падает в моно/тише). */
-$('mic').onclick = async () => {
+/* одна кнопка: пусто — микрофон (зажать), есть текст — отправка */
+function micStop() {
+  if (rec && rec.state === 'recording') { try { rec.stop(); } catch (_) {} }
+}
+
+async function micStart() {
   if (!micOk) { setStat('микрофон только на https', false); return; }
-  if (rec && rec.state === 'recording') { rec.stop(); return; }
+  if (rec && rec.state === 'recording') return;
+  if (recStarting) return;
+  recStarting = true;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
@@ -980,7 +1047,7 @@ $('mic').onclick = async () => {
     rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     rec.onstop = async () => {
       const secs = ((Date.now() - recStart) / 1000).toFixed(1);
-      $('mic').classList.remove('rec'); $('mic').innerHTML = MIC_SVG;
+      $('act').classList.remove('rec');
       const type = (rec && rec.mimeType) || mime || 'audio/webm';
       const blob = new Blob(chunks, { type });
       stream.getTracks().forEach(t => t.stop());   // сразу отпускаем микрофон
@@ -997,15 +1064,17 @@ $('mic').onclick = async () => {
         setStat('ждёт', false);
       } catch (e) { setStat('не распозналось', false); }
     };
-    rec.start(250); // чанки по 250 мс, чтобы начало записи не терялось
+    rec.start(250);
     recStart = Date.now();
-    $('mic').classList.add('rec'); $('mic').innerHTML = STOP_SVG;
+    $('act').classList.add('rec');
     setStat('пишу…', true);
     if (navigator.vibrate) navigator.vibrate(20);
   } catch (e) {
     setStat('микрофон: ' + (e.name || ''), false);
+  } finally {
+    recStarting = false;
   }
-};
+}
 window.addEventListener('pagehide', () => {
   if (rec && rec.state === 'recording') { try { rec.stop(); } catch (_) {} }
 });
@@ -1014,6 +1083,24 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 if (window.Notification && Notification.permission === 'default') {
   setTimeout(() => Notification.requestPermission().catch(() => {}), 4000);
 }
+/* ---------- файлы с компьютера на телефон (очередь от трея) ---------- */
+async function pollShare() {
+  if (!token || !window.AssiNative || !AssiNative.download) return;
+  try {
+    const r = await api('/api/share');
+    for (const it of r.items || []) {
+      const abs = location.origin + '/api/share/' + it.id + '?t=' + encodeURIComponent(token);
+      try { AssiNative.download(abs, it.name); } catch (_) {}
+      setTimeout(() => api('/api/share/' + it.id + '/ack', { method: 'POST' }).catch(() => {}), 4000);
+      logc('share -> ' + it.name);
+    }
+  } catch (_) {}
+}
+if (token && window.AssiNative && AssiNative.download) {
+  setTimeout(pollShare, 3000);
+  setInterval(pollShare, 15000);
+}
+
 if (token) { refresh(); openStream(); loadSessions(); }
 setInterval(() => { if (token) refresh(); }, 2000);
 setInterval(() => { if (token && !document.hidden) loadSessions(); }, 15000);

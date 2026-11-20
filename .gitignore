@@ -8,3 +8,5 @@ client*.log
 probe_last.json
 *.bak
 .DS_Store
+shared/
+shared-*/
