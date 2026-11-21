@@ -17,15 +17,15 @@
 
 ## Быстрый старт
 
-Один клик: скачай [release](https://github.com/F0RN1/assi-bridge/releases/latest), распакуй и запусти **`install.cmd`**. Он поставит Python (если нет), создаст `.venv`, поставит зависимости, запустит сервер и положит ярлык в автозагрузку.
-
-Или из консоли:
+Совсем с нуля — одна команда в PowerShell:
 
 ```powershell
-git clone https://github.com/F0RN1/assi-bridge.git
-cd assi-bridge
-install.cmd
+irm https://raw.githubusercontent.com/F0RN1/assi-bridge/main/bootstrap.ps1 | iex
 ```
+
+Она скачает репозиторий в `%USERPROFILE%\assi-bridge`, запустит установку и положит ярлык в автозагрузку.
+
+Или вручную: скачай [zip репозитория](https://github.com/F0RN1/assi-bridge/archive/refs/heads/main.zip), распакуй и запусти **`install.cmd`**. Он поставит Python (если нет), создаст `.venv`, поставит зависимости, запустит сервер и сделает автозапуск.
 
 Дальше сервер включается и выключается одной кнопкой:
 
@@ -114,6 +114,7 @@ static/index.html       интерфейс чата (терминальная т
 static/sw.js            service worker: оболочка из кэша, /api — всегда в сеть
 static/manifest.webmanifest  PWA-манифест
 install.cmd             установка в один клик (зовёт install-assi.ps1 -Autostart)
+bootstrap.ps1           скачать репозиторий и запустить install.cmd (одна команда)
 install-assi.ps1        установка: venv, зависимости, ярлык, первый запуск
 assi.ps1                сервер одной кнопкой: on | off | toggle | status
 run.cmd                 toggle двойным кликом
