@@ -1,4 +1,4 @@
-﻿"""Мост телефон <-> OpenCode. FastAPI + PWA + faster-whisper."""
+"""Мост телефон <-> OpenCode. FastAPI + PWA + faster-whisper."""
 import asyncio, base64, json, os, re, secrets, shutil, socket, subprocess, sys, tempfile, time, uuid, datetime
 from pathlib import Path
 
@@ -15,6 +15,9 @@ INBOX = Path.home() / "Inbox" if INSTANCE == "assi" else Path.home() / "Inbox" /
 OPENCODE_PORT = int(os.environ.get("ASSI_OPENCODE_PORT", 8790))
 BIND = ("0.0.0.0", int(os.environ.get("ASSI_PORT", 8787)))
 PUBLIC_URL = os.environ.get("ASSI_PUBLIC_URL", "https://assi.assi.pro")
+# Владелец машины — только основной экземпляр "assi".
+# Гостевые экземпляры (friend, slava) получают лишь чат: без проводника, питания и очереди файлов.
+OWNER = INSTANCE == "assi"
 MODEL = {"providerID": "opencode", "id": "deepseek-v4.1-flash-free"}
 AGENT = "build"
 WORKDIR = str(Path.home())
@@ -108,9 +111,15 @@ def auth(request: Request, token: str | None = Header(default=None, alias="X-Bri
         raise HTTPException(401, "bad token")
 
 
+def owner_only() -> None:
+    """Всё, что трогает компьютер владельца, — только для экземпляра "assi"."""
+    if not OWNER:
+        raise HTTPException(403, "гостевой режим: доступ к компьютеру закрыт")
+
+
 @app.get("/api/ping")
 async def ping():
-    return {"ok": True}
+    return {"ok": True, "owner": OWNER, "instance": INSTANCE}
 
 
 # --- Управление питанием -------------------------------------------------
@@ -140,6 +149,7 @@ def send_wol(mac: str = WOL_MAC) -> bool:
 async def wol_info(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """MAC ноута и broadcast-адреса — приложение шлёт magic packet само, когда сервер спит."""
     auth(request, token)
+    owner_only()
     bcasts = ["255.255.255.255"]
     try:
         for ip in lan_ips():
@@ -156,6 +166,7 @@ async def wol_info(request: Request, token: str | None = Header(default=None, al
 async def power(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """Действия: shutdown / reboot / sleep / lock / wake (magic packet)."""
     auth(request, token)
+    owner_only()
     body = await request.json()
     action = body.get("action")
     if action not in POWER_ACTIONS:
@@ -448,6 +459,7 @@ async def fs_list(request: Request, path: str = "",
                   t: str | None = None):
     """Проводник по компьютеру: без path — список дисков и быстрых папок."""
     auth(request, token or t)
+    owner_only()
     if not path.strip():
         entries = []
         if os.name == "nt":
@@ -498,6 +510,7 @@ async def fs_download(request: Request, path: str, t: str | None = None,
                       token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """Отдаёт файл с ПК на телефон (токен можно ?t= — так скачивает DownloadManager в приложении)."""
     auth(request, token or t)
+    owner_only()
     p = _fs_guard(path)
     if not p.is_file():
         raise HTTPException(404, "нет файла")
@@ -510,6 +523,7 @@ async def fs_upload(request: Request, path: str, file: UploadFile = File(...),
                     t: str | None = None, token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """Кладёт файл с телефона прямо в выбранную папку компьютера — без участия агента."""
     auth(request, token or t)
+    owner_only()
     dest = _fs_guard(path)
     if not dest.is_dir():
         raise HTTPException(404, "нет такой папки")
@@ -533,6 +547,7 @@ async def share_add(request: Request, file: UploadFile = File(...),
                     token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """Компьютер → телефон: файл кладётся в очередь, приложение забирает его само."""
     auth(request, token)
+    owner_only()
     SHARE_DIR.mkdir(parents=True, exist_ok=True)
     sid = uuid.uuid4().hex[:12]
     name = Path(file.filename or "file").name
@@ -550,6 +565,7 @@ async def share_add(request: Request, file: UploadFile = File(...),
 async def share_list(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token"),
                      t: str | None = None):
     auth(request, token or t)
+    owner_only()
     items = [it for it in state.get("share", []) if (SHARE_DIR / f"{it['id']}__{it['name']}").exists()]
     return {"items": items}
 
@@ -558,6 +574,7 @@ async def share_list(request: Request, token: str | None = Header(default=None, 
 async def share_get(sid: str, request: Request, t: str | None = None,
                     token: str | None = Header(default=None, alias="X-Bridge-Token")):
     auth(request, token or t)
+    owner_only()
     for it in state.get("share", []):
         if it["id"] == sid:
             p = SHARE_DIR / f"{sid}__{it['name']}"
@@ -571,6 +588,7 @@ async def share_get(sid: str, request: Request, t: str | None = None,
 async def share_ack(sid: str, request: Request,
                     token: str | None = Header(default=None, alias="X-Bridge-Token")):
     auth(request, token)
+    owner_only()
     kept = []
     for it in state.get("share", []):
         if it["id"] == sid:

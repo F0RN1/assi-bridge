@@ -1,4 +1,4 @@
-# Второй экземпляр моста — для друга (порт 8788, свой токен, свой чат).
+﻿# Второй экземпляр моста — для друга (порт 8788, свой токен, свой чат).
 # Запуск: powershell -ExecutionPolicy Bypass -File start-friend.ps1
 
 $ErrorActionPreference = 'SilentlyContinue'

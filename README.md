@@ -17,15 +17,26 @@
 
 ## Быстрый старт
 
+Один клик: скачай [release](https://github.com/F0RN1/assi-bridge/releases/latest), распакуй и запусти **`install.cmd`**. Он поставит Python (если нет), создаст `.venv`, поставит зависимости, запустит сервер и положит ярлык в автозагрузку.
+
+Или из консоли:
+
 ```powershell
 git clone https://github.com/F0RN1/assi-bridge.git
 cd assi-bridge
-powershell -ExecutionPolicy Bypass -File install-assi.ps1
+install.cmd
 ```
 
-Скрипт проверит Python (нет — поставит через winget), создаст `.venv`, поставит зависимости, запустит мост и откроет `http://127.0.0.1:8787/local` с адресом и токеном.
+Дальше сервер включается и выключается одной кнопкой:
 
-Флаг `-Autostart` добавит ярлык в автозагрузку.
+```powershell
+.\assi.ps1 on      # поднять мост, туннель и иконку в трее
+.\assi.ps1 off     # остановить всё
+.\assi.ps1 toggle  # переключить (этот же вызов у run.cmd и ярлыка)
+.\assi.ps1 status  # что запущено
+```
+
+`run.cmd` — тот же toggle двойным кликом; `install.cmd` дополнительно кладёт ярлык в автозагрузку.
 
 Требуется установленный и авторизованный **OpenCode** — мост поднимает `opencode serve` сам.
 
@@ -63,6 +74,8 @@ powershell -ExecutionPolicy Bypass -File start-friend.ps1
 
 У каждого экземпляра свой токен, своя сессия и своя папка входящих — чаты не пересекаются.
 
+**Гостевой режим.** Всё, что трогает компьютер, доступно только экземпляру `assi` (владелец машины): проводник, загрузка в папки, очередь файлов, питание и Wake-on-LAN. Любой другой экземпляр (`friend`, `slava`, …) получает только чат — эти ручки отдают `403`, а кнопки в интерфейсе скрыты. Если мост нужен другу — он ставит его **на своей машине**, а не на твоей.
+
 ## API
 
 | Метод | Путь | Назначение |
@@ -91,6 +104,7 @@ powershell -ExecutionPolicy Bypass -File start-friend.ps1
 - Токен — единственный ключ ко всему: файлы, сессии, память агента, питание ПК. Никому не передавайте.
 - `/local` отдаётся только на `127.0.0.1` — снаружи 404.
 - `bridge.json`, `bridge-friend.json`, логи и `.venv` в `.gitignore`.
+- Всё, что даёт доступ к железу (проводник, папки, очередь, питание, WOL), работает только у экземпляра-владельца `assi`; гостевые экземпляры — только чат.
 
 ## Структура
 
@@ -99,9 +113,13 @@ app.py                  FastAPI: OpenCode, чат, SSE, загрузки, пит
 static/index.html       интерфейс чата (терминальная тема)
 static/sw.js            service worker: оболочка из кэша, /api — всегда в сеть
 static/manifest.webmanifest  PWA-манифест
-install-assi.ps1        установка в один запуск
-start-assi.ps1          запуск основного моста + туннеля
-start-friend.ps1        второй экземпляр (8788)
+install.cmd             установка в один клик (зовёт install-assi.ps1 -Autostart)
+install-assi.ps1        установка: venv, зависимости, ярлык, первый запуск
+assi.ps1                сервер одной кнопкой: on | off | toggle | status
+run.cmd                 toggle двойным кликом
+start-assi.ps1          автозапуск (assi.ps1 on)
+stop-assi.ps1           остановка (assi.ps1 off)
+start-friend.ps1        второй экземпляр (8788), гостевой режим
 start-tray.ps1          иконка в трее: отправить файл на телефон
 phone_tray.py           сам трей (pystray, requirements-tray.txt)
 requirements.txt        зависимости
