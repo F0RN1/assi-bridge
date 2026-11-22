@@ -26,12 +26,11 @@ WORKDIR = str(Path.home())
 POWER_ACTIONS = [a.strip() for a in
                  os.environ.get("ASSI_POWER_ACTIONS", "wake,sleep,lock").split(",") if a.strip()]
 
-state = json.loads(STATE.read_text("utf-8")) if STATE.exists() else {}
+state = json.loads(STATE.read_text("utf-8-sig")) if STATE.exists() else {}
 
 
 def save_state():
     STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
-
 
 if "token" not in state:
     state["token"] = secrets.token_urlsafe(18)
@@ -119,7 +118,47 @@ def owner_only() -> None:
 
 @app.get("/api/ping")
 async def ping():
-    return {"ok": True, "owner": OWNER, "instance": INSTANCE}
+    return {"ok": True, "owner": OWNER, "instance": INSTANCE, "name": state.get("name") or INSTANCE}
+
+
+def _spawn_assi(action: str, delay: int = 2) -> None:
+    """Выполнить assi.ps1 <action> отдельно от моста (мост при этом может быть убит)."""
+    script = ROOT / "assi.ps1"
+    cmd = (f"Start-Sleep {delay}; & '{script}' {action}")
+    ps = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                      "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    # CREATE_NO_WINDOW (0x08000000), а не DETACHED_PROCESS: с DETACHED_PROCESS
+    # PowerShell молча ничего не делает (проверено).
+    flags = 0x08000000 | 0x00000200
+    log = open(ROOT / "assi-spawn.log", "a", encoding="utf-8")
+    subprocess.Popen([ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                     cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                     creationflags=flags, close_fds=True)
+
+
+@app.get("/api/server")
+async def server_status(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Состояние сервера для кнопки «выключить» в приложении."""
+    auth(request, token)
+    owner_only()
+    return {"ok": True, "instance": INSTANCE, "name": state.get("name") or INSTANCE,
+            "public_url": (state.get("public_url") or "").rstrip("/"), "port": BIND[1]}
+
+
+@app.post("/api/server")
+async def server_action(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Только владелец: остановить мост, оставив «спящий» порт для включения с телефона."""
+    auth(request, token)
+    owner_only()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = (body or {}).get("action", "stop")
+    if action != "stop":
+        raise HTTPException(400, "неизвестное действие")
+    _spawn_assi("pause", delay=2)
+    return {"ok": True, "action": "stop", "note": "мост выключится через 2 секунды, туннель останется"}
 
 
 # --- Управление питанием -------------------------------------------------
@@ -799,6 +838,7 @@ async def local_info(request: Request):
         port = st.get("port") or (8787 if item["name"] == "assi" else "")
         tok = st.get("token") or ""
         link = f"{pub}/?token={tok}" if pub and tok else ""
+        code = link or (f"http://127.0.0.1:{port}/?token={tok}" if tok else "")
         alive = False
         if port:
             try:
@@ -820,9 +860,11 @@ async def local_info(request: Request):
             <span class="val">{escape(pub or '—')}</span></div>
           <div class="field"><span class="k">токен</span>
             <span class="val"><span id="tok-{name}" class="mask" data-token="{escape(tok)}">{'•' * 14}</span></span></div>
+          <div class="field"><span class="k">код подключения</span>
+            <span class="val">{escape(code or '—')}</span></div>
           <div class="acts">
             <button class="btn mini" data-reveal="tok-{name}" type="button">показать</button>
-            <button class="btn mini" data-copy="{escape(tok)}" type="button">{COPY_ICON}копировать</button>
+            <button class="btn mini" data-copy="{escape(code or tok)}" type="button">{COPY_ICON}скопировать код</button>
             {f'<a class="btn mini primary" href="{escape(link)}" target="_blank" rel="noopener">{OPEN_ICON}открыть чат</a>' if link else ''}
             {f'<button class="btn mini" data-qr="{qr_id}" type="button">QR</button>' if link else ''}
           </div>

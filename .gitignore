@@ -10,3 +10,11 @@ probe_last.json
 .DS_Store
 shared/
 shared-*/
+connect.txt
+run.log
+*.run.log
+*.err.log
+gate*.log
+tunnel.log
+shared*
+

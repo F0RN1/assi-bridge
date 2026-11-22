@@ -1,4 +1,4 @@
-# Assi Bridge bootstrap: downloads the repo and runs the installer.
+﻿# Assi Bridge bootstrap: downloads the repo and runs the installer.
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/F0RN1/assi-bridge/main/bootstrap.ps1 | iex"
 param(
     [string]$Dest = (Join-Path $env:USERPROFILE 'assi-bridge'),
