@@ -810,23 +810,21 @@ def qr_svg(data: str) -> str:
 
 
 def hub_instances() -> list[dict]:
-    found = []
-    for p in sorted(ROOT.glob("bridge*.json")):
-        try:
-            st = json.loads(p.read_text("utf-8"))
-        except Exception:
-            continue
-        name = "assi" if p.name == "bridge.json" else p.stem.split("-", 1)[1]
-        found.append({"name": name, "st": st})
-    found.sort(key=lambda x: (x["name"] != INSTANCE, x["name"]))
-    return found
+    """Только свой экземпляр: чужие токены и адреса на странице не показываем."""
+    try:
+        st = json.loads(STATE.read_text("utf-8-sig"))
+    except Exception:
+        return []
+    return [{"name": INSTANCE, "st": st}]
 
 
 @app.get("/local")
 async def local_info(request: Request):
-    """Хаб: все мосты на этом компьютере — адреса, токены, состояние. Только с localhost."""
+    """Служебная страница владельца: адрес, токен, QR. Только localhost и только экземпляр assi."""
     host = request.client.host if request.client else ""
     if host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(404, "not found")
+    if not OWNER:
         raise HTTPException(404, "not found")
 
     from html import escape
