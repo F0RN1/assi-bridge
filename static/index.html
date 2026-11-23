@@ -985,6 +985,22 @@ log.addEventListener('click', e => {
 });
 
 /* ---------- питание ---------- */
+/* После остановки сервера ждём, пока порт займёт wake_gate, и уходим на страницу «Сервер выключен». */
+async function waitForStop() {
+  setStat('останавливаю сервер…', true);
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 800));
+    try {
+      const r = await fetch('/api/ping?_=' + Date.now(), { cache: 'no-store' });
+      const j = await r.json();
+      if (j.wake || !j.ok) {
+        location.replace('/' + (token ? '?token=' + encodeURIComponent(token) : ''));
+        return;
+      }
+    } catch (_) { /* мост уже упал, gate ещё поднимается */ }
+  }
+  location.reload();
+}
 const NAMES = { wake: 'Разбудить ноут (WOL)?', lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?', stopserver: 'Остановить сервер? Чат замолчит, пока не включишь его снова с телефона.' };
 $('pw').onclick = () => { if (!token) return; $('sheet').classList.add('on'); };
 $('sheet').onclick = async (e) => {
@@ -998,7 +1014,7 @@ $('sheet').onclick = async (e) => {
       await api('/api/server', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stop' }) });
       if (navigator.vibrate) navigator.vibrate(30);
       toast('Сервер выключается…');
-      setTimeout(() => location.reload(), 6000);
+      waitForStop();
     } catch (_) { setStat('не получилось', false); }
     return;
   }
