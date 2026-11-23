@@ -810,21 +810,35 @@ def qr_svg(data: str) -> str:
 
 
 def hub_instances() -> list[dict]:
-    """Только свой экземпляр: чужие токены и адреса на странице не показываем."""
-    try:
-        st = json.loads(STATE.read_text("utf-8-sig"))
-    except Exception:
-        return []
-    return [{"name": INSTANCE, "st": st}]
+    """Все мосты на этом ПК: адрес, токен, состояние. Страница открывается только владельцу."""
+    found = []
+    for p in sorted(ROOT.glob("bridge*.json")):
+        try:
+            st = json.loads(p.read_text("utf-8-sig"))
+        except Exception:
+            continue
+        name = "assi" if p.name == "bridge.json" else p.stem.split("-", 1)[1]
+        found.append({"name": name, "st": st})
+    found.sort(key=lambda x: (x["name"] != INSTANCE, x["name"]))
+    return found
+
+
+def _is_owner_request(request: Request, token: str | None = None,
+                      t: str | None = None) -> bool:
+    """Владелец — это localhost или тот, кто знает токен своего моста."""
+    host = request.client.host if request.client else ""
+    if host in ("127.0.0.1", "::1", "localhost"):
+        return True
+    given = token or t or request.query_params.get("token") or request.query_params.get("t") or ""
+    return bool(given) and secrets.compare_digest(given, TOKEN)
 
 
 @app.get("/local")
-async def local_info(request: Request):
-    """Служебная страница владельца: адрес, токен, QR. Только localhost и только экземпляр assi."""
-    host = request.client.host if request.client else ""
-    if host not in ("127.0.0.1", "::1", "localhost"):
-        raise HTTPException(404, "not found")
+async def local_info(request: Request, token: str | None = None, t: str | None = None):
+    """Служебная страница владельца: все мосты, токены, QR. Только экземпляр assi и только по токену или с localhost."""
     if not OWNER:
+        raise HTTPException(404, "not found")
+    if not _is_owner_request(request, token, t):
         raise HTTPException(404, "not found")
 
     from html import escape
