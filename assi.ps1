@@ -63,6 +63,13 @@ function Save-StateUrl([string]$url) {
     if ($j.public_url -ne $url) {
         $j | Add-Member -Force public_url $url
         [IO.File]::WriteAllText($state, ($j | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding $false))
+        # connect.txt тоже обновляем: иначе на телефон вставляют адрес, который уже умер
+        $tok = $j.token
+        if ($tok) {
+            $code = ($url.TrimEnd('/')) + '/?token=' + $tok
+            $txt = Join-Path $root 'connect.txt'
+            [IO.File]::WriteAllText($txt, $code + "`r`n", (New-Object System.Text.UTF8Encoding $true))
+        }
     }
 }
 
