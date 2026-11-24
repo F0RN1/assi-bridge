@@ -15,6 +15,10 @@ param(
     [string]$Name = ''
 )
 
+# Адрес регистратора (Cloudflare Worker из папки registrar/), без слэша на конце.
+# Пусто — постоянные адреса не предлагаются, останутся временные *.trycloudflare.com.
+$RegistrarUrl = ''
+
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
@@ -23,6 +27,25 @@ $state = Join-Path $root 'bridge.json'
 
 function Say($msg) { Write-Host $msg }
 function Fail($msg) { Write-Host "ошибка: $msg" -ForegroundColor Red; exit 1 }
+
+function Register-Name([string]$nm) {
+    if (-not $RegistrarUrl) {
+        Say "в setup.ps1 не заполнен `$RegistrarUrl — постоянный адрес сейчас недоступен" -ForegroundColor Yellow
+        return $null
+    }
+    $inv = (Read-Host "Пригласительный код").Trim()
+    $body = @{ name = $nm; invite = $inv } | ConvertTo-Json -Compress
+    try {
+        return Invoke-RestMethod -Uri ($RegistrarUrl.TrimEnd('/') + '/register') -Method Post `
+            -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 45
+    } catch {
+        $msg = $_.ErrorDetails.Message
+        if ($msg) { try { $msg = ($msg | ConvertFrom-Json).error } catch { } }
+        if (-not $msg) { $msg = $_.Exception.Message }
+        Say "не вышло: $msg" -ForegroundColor Yellow
+        return $null
+    }
+}
 
 Say "== Assi: установка =="
 Say "папка: $root"
@@ -111,6 +134,36 @@ if (-not $cfg -or -not $cfg.token) {
     Say "имя: $Name · порт: $port"
 } else {
     Say "настройка уже есть: имя $($cfg.name), порт $($cfg.port)"
+}
+
+# --- доступ снаружи: временный или постоянный ------------------------------
+if (-not $cfg.public_url -and -not $cfg.tunnel_token) {
+    Say ""
+    Say "Как открывать сервер с телефона (из любой сети):"
+    Say "  1) временный адрес *.trycloudflare.com — бесплатно, без аккаунта,"
+    Say "     но меняется при каждом запуске (код подключения тоже обновляется)"
+    Say "  2) постоянный <имя>.assi.pro по пригласительному коду — адрес не меняется"
+    Say "  3) свой домен — если cloudflared уже настроен на этот ПК"
+    do { $pick = (Read-Host "Выбор [1/2/3], Enter — временный").Trim() } while ($pick -notin @('', '1', '2', '3'))
+    if ($pick -eq '2') {
+        while ($true) {
+            $nm = (Read-Host "Имя для адреса (2–8 символов: a-z, 0-9)").Trim().ToLower()
+            if ($nm -notmatch '^[a-z0-9]{2,8}$') {
+                Say "не подходит: только a-z и 0-9, длина 2–8" -ForegroundColor Yellow
+                continue
+            }
+            $res = Register-Name $nm
+            if ($res -and $res.ok) {
+                $cfg | Add-Member -Force public_url ("https://" + $nm + ".assi.pro")
+                if ($res.token) { $cfg | Add-Member -Force tunnel_token $res.token }
+                [IO.File]::WriteAllText($state, ($cfg | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding $false))
+                Say "постоянный адрес: https://$nm.assi.pro"
+                break
+            }
+            $again = (Read-Host "Попробовать другое имя? [Y/n]").Trim()
+            if ($again -match '^[nN]') { break }
+        }
+    }
 }
 
 # --- автозапуск -----------------------------------------------------------

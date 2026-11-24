@@ -106,6 +106,18 @@ function Start-Tunnel {
         return
     }
 
+    # Постоянный адрес от регистратора: cloudflared поднимается по токену туннеля.
+    if (Test-Path $state) {
+        $st = Get-Content $state -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($st.tunnel_token) {
+            Write-Host "поднимаю туннель (постоянный адрес)…"
+            Start-Process -FilePath $cf -ArgumentList 'tunnel', '--no-autoupdate', 'run', '--token', $st.tunnel_token `
+                -WindowStyle Hidden -RedirectStandardOutput "$root\tunnel.log" -RedirectStandardError "$root\tunnel.err.log"
+            if ($st.public_url) { Write-Host "адрес: $($st.public_url)" }
+            return
+        }
+    }
+
     # Быстрый туннель: адрес бесплатный и без аккаунта, но меняется при каждом запуске.
     Write-Host "поднимаю туннель…"
     Remove-Item $tunnelLog -Force
