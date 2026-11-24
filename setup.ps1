@@ -17,7 +17,7 @@ param(
 
 # Адрес регистратора (Cloudflare Worker из папки registrar/), без слэша на конце.
 # Пусто — постоянные адреса не предлагаются, останутся временные *.trycloudflare.com.
-$RegistrarUrl = ''
+$RegistrarUrl = 'https://assi-registrar.kmgnyhju.workers.dev'
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
