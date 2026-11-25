@@ -193,6 +193,25 @@
   /* ----- файлы ПК -> телефон ----- */
   #files { position:fixed; inset:0; background:var(--bg); z-index:60; display:none; flex-direction:column; }
   #files.on { display:flex; }
+  #srv { position:fixed; inset:0; background:var(--bg); z-index:62; display:none; flex-direction:column; }
+  #srv.on { display:flex; }
+  #srvbody { flex:1; overflow-y:auto; padding:6px 0 24px; }
+  .fhead #srvrefresh { margin-left:auto; width:40px; height:40px; min-width:40px; border-radius:11px;
+                       background:var(--surface); border:1px solid var(--line); color:var(--dim);
+                       display:grid; place-items:center; }
+  .sline { display:flex; align-items:center; justify-content:space-between; gap:12px;
+           padding:13px 16px; border-bottom:1px solid #1a1f26; font-size:14px; }
+  .sline .k { color:var(--dim); font:12px var(--mono); flex:none; }
+  .sline .v { text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sline .v.ok { color:var(--lime); }
+  .sline .v.bad { color:var(--danger); }
+  .sbtn { display:flex; align-items:center; gap:12px; margin:10px 16px 0; padding:13px 16px;
+          border-radius:14px; background:var(--surface); border:1px solid var(--line); font-size:14.5px; }
+  .sbtn:active { background:var(--raised); }
+  .sbtn svg { width:20px; height:20px; flex:none; color:var(--dim); }
+  .sbtn.danger { color:var(--danger); border-color:#ff546833; }
+  .sbtn.danger svg { color:var(--danger); }
+  .snote { padding:10px 16px 0; font:12px var(--ui); color:var(--dim); line-height:1.55; }
   .fhead { display:flex; align-items:center; gap:10px; padding:calc(12px + env(safe-area-inset-top)) 14px 10px;
            border-bottom:1px solid var(--line); }
   .fhead .ttl { font:600 15px var(--ui); }
@@ -230,6 +249,7 @@
   #toast b { font-weight:600; }
   /* гостевой экземпляр: кнопки доступа к компьютеру скрыты */
   body.guest #fs, body.guest #pw { display:none; }
+  body.guest #srvrow { display:none !important; }
 </style>
 </head>
 <body>
@@ -291,6 +311,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5"/></svg>
       Выключить
     </div>
+    <div class="row" data-act="srvinfo" id="srvrow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+      Сервер: состояние и команды
+    </div>
     <div class="row danger" data-act="stopserver" id="stoprow">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
       Остановить сервер
@@ -314,6 +338,23 @@
   </div>
   <div class="crumbs" id="crumbs"></div>
   <div id="flist"></div>
+</div>
+
+<div id="srv" role="dialog" aria-label="сервер">
+  <div class="fhead">
+    <button id="srvclose" aria-label="закрыть">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M15 5l-7 7 7 7"/>
+      </svg>
+    </button>
+    <div class="ttl">Сервер</div>
+    <button id="srvrefresh" title="обновить" aria-label="обновить">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 4v5h-5"/>
+      </svg>
+    </button>
+  </div>
+  <div id="srvbody"></div>
 </div>
 
 <div id="setup">
@@ -1001,6 +1042,90 @@ async function waitForStop() {
   }
   location.reload();
 }
+/* ---------- экран «Сервер»: состояние и команды ---------- */
+const srvBox = $('srv'), srvBody = $('srvbody');
+
+function srvLine(k, v, cls) {
+  const d = document.createElement('div');
+  d.className = 'sline';
+  const kk = document.createElement('div'); kk.className = 'k'; kk.textContent = k;
+  const vv = document.createElement('div'); vv.className = 'v' + (cls ? ' ' + cls : ''); vv.textContent = v;
+  d.appendChild(kk); d.appendChild(vv);
+  return d;
+}
+
+function srvBtn(label, cls, onClick, path) {
+  const b = document.createElement('button');
+  b.className = 'sbtn' + (cls ? ' ' + cls : '');
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+  const s = document.createElement('span'); s.textContent = label;
+  b.appendChild(s);
+  b.onclick = onClick;
+  return b;
+}
+
+async function srvWaitBack() {
+  toast('Перезапускаю сервер…');
+  for (let i = 0; i < 90; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const r = await fetch('/api/ping?_=' + Date.now(), { cache: 'no-store' });
+      const j = await r.json();
+      if (j && j.ok) { toast('Сервер снова работает'); setTimeout(() => location.reload(), 900); return; }
+    } catch (_) {}
+  }
+  toast('сервер не поднялся — проверь на компьютере');
+}
+
+async function srvRender() {
+  srvBody.innerHTML = '';
+  srvBody.appendChild(srvLine('состояние', 'проверяю…'));
+  let j = null;
+  try { j = await api('/api/server'); } catch (_) {}
+  srvBody.innerHTML = '';
+  if (!j) {
+    srvBody.appendChild(srvLine('сервер', 'не отвечает', 'bad'));
+    srvBody.appendChild(srvBtn('Обновить', '', srvRender, '<path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 4v5h-5"/>'));
+    return;
+  }
+  srvBody.appendChild(srvLine('имя', j.name || j.instance || '—'));
+  srvBody.appendChild(srvLine('адрес', j.public_url || 'локально'));
+  srvBody.appendChild(srvLine('порт', String(j.port || '—')));
+  srvBody.appendChild(srvLine('работает', j.uptime_text || 'только что', 'ok'));
+  srvBody.appendChild(srvLine('туннель', j.tunnel ? 'есть' : 'нет', j.tunnel ? 'ok' : 'bad'));
+  srvBody.appendChild(srvLine('версия', j.version || '—'));
+
+  srvBody.appendChild(srvBtn('Перезапустить сервер', '', async () => {
+    try {
+      await api('/api/server', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restart' }) });
+      if (navigator.vibrate) navigator.vibrate(30);
+      srvBox.classList.remove('on');
+      srvWaitBack();
+    } catch (_) { setStat('не получилось перезапустить', false); }
+  }, '<path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 4v5h-5"/>'));
+
+  srvBody.appendChild(srvBtn('Остановить сервер', 'danger', async () => {
+    if (!confirm('Остановить сервер? Чат замолчит, пока не включишь его снова.')) return;
+    try {
+      await api('/api/server', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stop' }) });
+      if (navigator.vibrate) navigator.vibrate(30);
+      srvBox.classList.remove('on');
+      toast('Сервер выключается…');
+      waitForStop();
+    } catch (_) { setStat('не получилось', false); }
+  }, '<rect x="6" y="6" width="12" height="12" rx="2"/>'));
+
+  srvBody.appendChild(srvBtn('Обновить', '', srvRender, '<path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 4v5h-5"/>'));
+
+  const note = document.createElement('div');
+  note.className = 'snote';
+  note.textContent = 'Отсюда можно только посмотреть состояние, перезапустить и остановить. Когда сервер остановлен, эта страница сама предложит его включить.';
+  srvBody.appendChild(note);
+}
+
+$('srvclose').onclick = () => srvBox.classList.remove('on');
+$('srvrefresh').onclick = srvRender;
+
 const NAMES = { wake: 'Разбудить ноут (WOL)?', lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?', stopserver: 'Остановить сервер? Чат замолчит, пока не включишь его снова с телефона.' };
 $('pw').onclick = () => { if (!token) return; $('sheet').classList.add('on'); };
 $('sheet').onclick = async (e) => {
@@ -1008,6 +1133,7 @@ $('sheet').onclick = async (e) => {
   const act = e.target.dataset.act;
   if (!act) return;
   $('sheet').classList.remove('on');
+  if (act === 'srvinfo') { srvBox.classList.add('on'); srvRender(); return; }
   if (!confirm(NAMES[act])) return;
   if (act === 'stopserver') {
     try {
@@ -1038,7 +1164,7 @@ function applyPowerCaps(list) {
   const ok = new Set(Array.isArray(list) ? list : []);
   document.querySelectorAll('#sheet .row[data-act]').forEach(r => {
     const a = r.dataset.act;
-    const native = (a === 'wake' && !!window.AssiNative) || a === 'stopserver';  // WOL шлёт приложение, стоп-сервер есть всегда
+    const native = (a === 'wake' && !!window.AssiNative) || a === 'stopserver' || a === 'srvinfo';  // WOL шлёт приложение, стоп/инфо сервера есть всегда
     r.style.display = (ok.has(a) || native) ? '' : 'none';
   });
 }

@@ -19,6 +19,8 @@ PUBLIC_URL = os.environ.get("ASSI_PUBLIC_URL", "https://assi.assi.pro")
 # Гостевые экземпляры (friend, slava) получают лишь чат: без проводника, питания и очереди файлов.
 OWNER = INSTANCE == "assi"
 MODEL = {"providerID": "opencode", "id": "deepseek-v4.1-flash-free"}
+APP_VERSION = "1.5.0"
+STARTED = time.time()
 AGENT = "build"
 WORKDIR = str(Path.home())
 # Какие кнопки питания реально включены на этом сервере.
@@ -137,28 +139,69 @@ def _spawn_assi(action: str, delay: int = 2) -> None:
 
 
 @app.get("/api/server")
-async def server_status(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
-    """Состояние сервера для кнопки «выключить» в приложении."""
+def server_status(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
+    """Состояние сервера для экрана «Сервер» в приложении.
+    Синхронная функция: внутри вызывается tasklist, а он не должен держать event loop."""
     auth(request, token)
     owner_only()
+    up = int(time.time() - STARTED)
     return {"ok": True, "instance": INSTANCE, "name": state.get("name") or INSTANCE,
-            "public_url": (state.get("public_url") or "").rstrip("/"), "port": BIND[1]}
+            "public_url": (state.get("public_url") or "").rstrip("/"), "port": BIND[1],
+            "pid": os.getpid(), "uptime": up, "uptime_text": _human_uptime(up),
+            "tunnel": _tunnel_running(), "owner": OWNER, "version": APP_VERSION,
+            "actions": ["status", "restart", "stop"]}
+
+
+TUNNEL_CACHE = {"ts": 0.0, "val": False}
+
+
+def _tunnel_running() -> bool:
+    """Запущен ли cloudflared (кэш 30 секунд — tasklist не бесплатный)."""
+    now = time.time()
+    if now - TUNNEL_CACHE["ts"] < 30:
+        return TUNNEL_CACHE["val"]
+    val = False
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq cloudflared.exe", "/NH"],
+                             capture_output=True, text=True, timeout=5,
+                             creationflags=0x08000000).stdout
+        val = "cloudflared" in (out or "").lower()
+    except Exception:
+        val = False
+    TUNNEL_CACHE.update(ts=now, val=val)
+    return val
+
+
+def _human_uptime(sec: int) -> str:
+    if sec < 60:
+        return "меньше минуты"
+    d, rem = divmod(max(0, sec), 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:
+        return f"{d} д {h} ч {m} мин"
+    if h:
+        return f"{h} ч {m} мин"
+    return f"{m} мин"
 
 
 @app.post("/api/server")
 async def server_action(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
-    """Только владелец: остановить мост, оставив «спящий» порт для включения с телефона."""
+    """Только владелец: остановить или перезапустить мост."""
     auth(request, token)
     owner_only()
     try:
         body = await request.json()
     except Exception:
         body = {}
-    action = (body or {}).get("action", "stop")
-    if action != "stop":
-        raise HTTPException(400, "неизвестное действие")
-    _spawn_assi("pause", delay=2)
-    return {"ok": True, "action": "stop", "note": "мост выключится через 2 секунды, туннель останется"}
+    action = (body or {}).get("action")
+    if action == "stop":
+        _spawn_assi("pause", delay=2)
+        return {"ok": True, "action": "stop", "note": "мост выключится через 2 секунды, туннель останется"}
+    if action == "restart":
+        _spawn_assi("restart", delay=1)
+        return {"ok": True, "action": "restart", "note": "мост перезапустится за ~10–30 секунд"}
+    raise HTTPException(400, "неизвестное действие")
 
 
 # --- Управление питанием -------------------------------------------------

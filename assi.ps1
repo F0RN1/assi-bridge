@@ -7,7 +7,7 @@
 #   .\assi.ps1 status   — что сейчас запущено
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('on', 'off', 'toggle', 'pause', 'resume', 'status')]
+    [ValidateSet('on', 'off', 'toggle', 'pause', 'resume', 'restart', 'status')]
     [string]$Action = 'toggle'
 )
 
@@ -190,10 +190,23 @@ function Pause-All {
     Write-Host "сервер выключен — включить можно с телефона"
 }
 
+function Restart-All {
+    Write-Host "перезапускаю мост…"
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+        Where-Object { $_.CommandLine -like '*app.py*' -or $_.CommandLine -like '*wake_gate.py*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    for ($i = 0; $i -lt 24; $i++) {
+        if (-not (Get-NetTCPConnection -LocalPort $port -State Listen)) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    Start-All
+}
+
 switch ($Action) {
     'on' { Start-All }
     'off' { Stop-All }
     'pause' { Pause-All }
+    'restart' { Restart-All }
     'resume' {
         Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
             Where-Object { $_.CommandLine -like '*wake_gate.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
