@@ -10,10 +10,13 @@
  *   CF_ACCOUNT_ID  — ID аккаунта
  *   CF_ZONE_ID     — ID зоны assi.pro
  *   INVITE_CODES   — пригласительные коды через запятую
+ *   ADMIN_KEY      — необязательный ключ владельца: с заголовком X-Admin-Key
+ *                    /release работает без пригласительного кода
  *
  * KV-пространство LIMITS привязано как LIMITS (счётчики и реестр имён).
  *
- * Запросы: GET /health, POST /register {name, invite}, POST /release {name, invite}
+ * Запросы: GET /health, POST /register {name, invite},
+ *          POST /release {name, invite} — invite не нужен при X-Admin-Key
  */
 
 const API = "https://api.cloudflare.com/client/v4";
@@ -70,6 +73,12 @@ function checkInvite(env, invite) {
     .map((s) => s.trim())
     .filter(Boolean);
   return Boolean(invite) && list.includes(String(invite).trim());
+}
+
+function checkAdmin(env, req) {
+  const key = env.ADMIN_KEY || "";
+  const given = req.headers.get("X-Admin-Key") || "";
+  return Boolean(key) && Boolean(given) && given === key;
 }
 
 function normalizeName(raw) {
@@ -180,7 +189,8 @@ async function release(env, req) {
   } catch (_) {
     return bad("нужен JSON: {name, invite}");
   }
-  if (!checkInvite(env, body.invite)) {
+  const admin = checkAdmin(env, req);
+  if (!admin && !checkInvite(env, body.invite)) {
     return bad("пригласительный код не принят", 403);
   }
   const parsed = normalizeName(body.name);

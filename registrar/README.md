@@ -32,6 +32,7 @@ Cloudflare Worker, который по пригласительному коду
 | `CF_ACCOUNT_ID` | ID аккаунта (правый сайдбар панели, или из URL `dash.cloudflare.com/<ID>`) |
 | `CF_ZONE_ID` | ID зоны `assi.pro`: **Overview** зоны → правый сайдбар → **Zone ID** |
 | `INVITE_CODES` | пригласительные коды через запятую, например `forni-2026,slava-4417` |
+| `ADMIN_KEY` | необязательный ключ владельца: с ним `/release` работает без пригласительного кода. Придумай длинную случайную строку |
 
 ### Токен Cloudflare
 
@@ -66,17 +67,38 @@ curl.exe -X POST https://assi-registrar.<...>.workers.dev/register `
 | --- | --- | --- | --- |
 | `GET` | `/health` | — | `{"ok":true}` |
 | `POST` | `/register` | `{"name","invite"}` | `{"ok":true,"url","token"}` |
-| `POST` | `/release` | `{"name","invite"}` | `{"ok":true,"released"}` |
+| `POST` | `/release` | `{"name","invite"}` или `{"name"}` + заголовок `X-Admin-Key` | `{"ok":true,"released"}` |
 
 Правила:
 
 - имя — 2–8 символов, `[a-z0-9]`; зарезервированы `assi`, `friend`, `slava`,
   `www`, `api`, `mail`, `registrar`, `admin`, `root`;
-- без пригласительного кода — `403`;
+- без пригласительного кода — `403` (кроме `/release` с верным `X-Admin-Key`);
 - занятое имя (или уже выданное) — `409` / повторная выдача того же токена;
 - не больше 5 регистраций с одного IP в сутки и 25 адресов всего — `429`;
 - ingress туннеля всегда указывает на `http://localhost:8787`, менять его снаружи
   нельзя: адрес — это только вход, а мост на машине пользователя.
+
+## Убрать адрес без кода приглашения
+
+Если завёл секрет `ADMIN_KEY`, `/release` можно звать без `invite`:
+
+```powershell
+curl.exe -X POST https://assi-registrar.<...>.workers.dev/release `
+  -H "content-type: application/json" -H "X-Admin-Key: <ключ>" `
+  -d "{\"name\":\"slava\"}"
+```
+
+Из репозитория то же самое делает `release.ps1`:
+
+```powershell
+.\release.ps1 -Name slava -AdminKey <ключ>
+# или положить ключ в окружение и не указывать вовсе:
+$env:ASSI_ADMIN_KEY = '<ключ>'; .\release.ps1 -Name slava
+```
+
+Без `ADMIN_KEY` всё работает по-старому: нужен любой действующий код из
+`INVITE_CODES`.
 
 ## Ограничения
 
