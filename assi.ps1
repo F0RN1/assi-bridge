@@ -2,12 +2,10 @@
 #   .\assi.ps1 on       — поднять мост, туннель и иконку в трее
 #   .\assi.ps1 off      — остановить всё
 #   .\assi.ps1 toggle   — переключить (кнопка на рабочем столе)
-#   .\assi.ps1 pause    — выключить мост, оставив «спящий» порт для телефона
-#   .\assi.ps1 resume   — поднять мост обратно (после pause)
 #   .\assi.ps1 status   — что сейчас запущено
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('on', 'off', 'toggle', 'pause', 'resume', 'restart', 'status')]
+    [ValidateSet('on', 'off', 'toggle', 'status')]
     [string]$Action = 'toggle'
 )
 
@@ -35,22 +33,15 @@ function Ping-Bridge {
     } catch { return $false }
 }
 
-function Gate-Running {
-    $p = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-        Where-Object { $_.CommandLine -like '*wake_gate.py*' })
-    return [bool]$p.Length
-}
-
 function Bridge-Running {
     $p = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-        Where-Object { $_.CommandLine -like '*app.py*' -and $_.CommandLine -notlike '*wake_gate*' })
+        Where-Object { $_.CommandLine -like '*app.py*' })
     return [bool]$p.Length
 }
 
 function Get-Activity {
     [pscustomobject]@{
         Bridge = (Bridge-Running) -and (Ping-Bridge)
-        Gate   = Gate-Running
         Tunnel = [bool](Get-Process cloudflared -ErrorAction SilentlyContinue)
         Tray   = [bool](Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" |
             Where-Object { $_.CommandLine -like '*phone_tray.py*' })
@@ -75,11 +66,6 @@ function Save-StateUrl([string]$url) {
 
 function Start-Bridge {
     if (-not (Test-Path $py)) { Write-Host "нет окружения: запусти setup.ps1" -ForegroundColor Red; return }
-    # даём «спящему порту» умереть: иначе мост не сядет на занятый порт
-    for ($i = 0; $i -lt 24; $i++) {
-        if (-not (Get-NetTCPConnection -LocalPort $port -State Listen)) { break }
-        Start-Sleep -Milliseconds 500
-    }
     if (-not (Bridge-Running)) {
         Write-Host "поднимаю мост…"
         Start-Process -FilePath $py -ArgumentList '-u', 'app.py' -WorkingDirectory $root -WindowStyle Hidden `
@@ -145,14 +131,6 @@ function Start-Tray {
     Start-Process -FilePath $pyw -ArgumentList (Join-Path $root 'phone_tray.py') -WorkingDirectory $root
 }
 
-function Start-Gate {
-    if (-not (Get-NetTCPConnection -LocalPort $port -State Listen)) {
-        Start-Process -FilePath $py -ArgumentList '-u', 'wake_gate.py' -WorkingDirectory $root -WindowStyle Hidden `
-            -RedirectStandardOutput "$root\gate.log" -RedirectStandardError "$root\gate.err.log"
-        Start-Sleep 2
-    }
-}
-
 function Start-All {
     Start-Bridge
     Start-Tunnel
@@ -164,16 +142,12 @@ function Start-All {
         $(if ($a.Tray) { 'есть' } else { 'нет' }))
 }
 
-function Stop-Bridge {
-    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-        Where-Object { $_.CommandLine -like '*app.py*' -or $_.CommandLine -like '*wake_gate.py*' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    Start-Sleep 2
-}
-
 function Stop-All {
     Write-Host "останавливаю…"
-    Stop-Bridge
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+        Where-Object { $_.CommandLine -like '*app.py*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Start-Sleep 2
     Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" |
         Where-Object { $_.CommandLine -like '*phone_tray.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
     Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -181,47 +155,14 @@ function Stop-All {
     Write-Host "сервер остановлен"
 }
 
-function Pause-All {
-    Write-Host "выключаю мост (порт остаётся для телефона)…"
-    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-        Where-Object { $_.CommandLine -like '*app.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    Start-Sleep 2
-    Start-Gate
-    Write-Host "сервер выключен — включить можно с телефона"
-}
-
-function Restart-All {
-    Write-Host "перезапускаю мост…"
-    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-        Where-Object { $_.CommandLine -like '*app.py*' -or $_.CommandLine -like '*wake_gate.py*' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    for ($i = 0; $i -lt 24; $i++) {
-        if (-not (Get-NetTCPConnection -LocalPort $port -State Listen)) { break }
-        Start-Sleep -Milliseconds 500
-    }
-    Start-All
-}
-
 switch ($Action) {
     'on' { Start-All }
     'off' { Stop-All }
-    'pause' { Pause-All }
-    'restart' { Restart-All }
-    'resume' {
-        Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-            Where-Object { $_.CommandLine -like '*wake_gate.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-        for ($i = 0; $i -lt 24; $i++) {
-            if (-not (Get-NetTCPConnection -LocalPort $port -State Listen)) { break }
-            Start-Sleep -Milliseconds 500
-        }
-        Start-All
-    }
     'toggle' { if ((Get-Activity).Bridge) { Stop-All } else { Start-All } }
     'status' {
         $a = Get-Activity
-        Write-Host ("мост: {0} | спящий порт: {1} | туннель: {2} | трей: {3}" -f `
+        Write-Host ("мост: {0} | туннель: {1} | трей: {2}" -f `
             $(if ($a.Bridge) { 'работает' } else { 'стоит' }), `
-            $(if ($a.Gate) { 'да' } else { 'нет' }), `
             $(if ($a.Tunnel) { 'есть' } else { 'нет' }), `
             $(if ($a.Tray) { 'есть' } else { 'нет' }))
     }

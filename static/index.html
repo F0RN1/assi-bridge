@@ -163,7 +163,6 @@
   #sheet .row:active { background:var(--raised); }
   #sheet .row.danger { color:var(--danger); }
   #sheet .row.danger svg { color:var(--danger); }
-#sheet .row[data-act="stopserver"] { border-top:1px solid var(--line); margin-top:6px; }
 
   /* ----- список чатов ----- */
   #drawer { position:fixed; inset:0 auto 0 0; width:min(86vw,340px); background:#0b0d11;
@@ -313,11 +312,7 @@
     </div>
     <div class="row" data-act="srvinfo" id="srvrow">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
-      Сервер: состояние и команды
-    </div>
-    <div class="row danger" data-act="stopserver" id="stoprow">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
-      Остановить сервер
+      Сервер: состояние
     </div>
   </div>
 </div>
@@ -1025,24 +1020,7 @@ log.addEventListener('click', e => {
   fsDownload(a.dataset.path, a.dataset.path.split(/[\\/]/).pop());
 });
 
-/* ---------- питание ---------- */
-/* После остановки сервера ждём, пока порт займёт wake_gate, и уходим на страницу «Сервер выключен». */
-async function waitForStop() {
-  setStat('останавливаю сервер…', true);
-  for (let i = 0; i < 40; i++) {
-    await new Promise(r => setTimeout(r, 800));
-    try {
-      const r = await fetch('/api/ping?_=' + Date.now(), { cache: 'no-store' });
-      const j = await r.json();
-      if (j.wake || !j.ok) {
-        location.replace('/' + (token ? '?token=' + encodeURIComponent(token) : ''));
-        return;
-      }
-    } catch (_) { /* мост уже упал, gate ещё поднимается */ }
-  }
-  location.reload();
-}
-/* ---------- экран «Сервер»: состояние и команды ---------- */
+/* ---------- экран «Сервер»: состояние ---------- */
 const srvBox = $('srv'), srvBody = $('srvbody');
 
 function srvLine(k, v, cls) {
@@ -1064,19 +1042,6 @@ function srvBtn(label, cls, onClick, path) {
   return b;
 }
 
-async function srvWaitBack() {
-  toast('Перезапускаю сервер…');
-  for (let i = 0; i < 90; i++) {
-    await new Promise(r => setTimeout(r, 1500));
-    try {
-      const r = await fetch('/api/ping?_=' + Date.now(), { cache: 'no-store' });
-      const j = await r.json();
-      if (j && j.ok) { toast('Сервер снова работает'); setTimeout(() => location.reload(), 900); return; }
-    } catch (_) {}
-  }
-  toast('сервер не поднялся — проверь на компьютере');
-}
-
 async function srvRender() {
   srvBody.innerHTML = '';
   srvBody.appendChild(srvLine('состояние', 'проверяю…'));
@@ -1095,38 +1060,18 @@ async function srvRender() {
   srvBody.appendChild(srvLine('туннель', j.tunnel ? 'есть' : 'нет', j.tunnel ? 'ok' : 'bad'));
   srvBody.appendChild(srvLine('версия', j.version || '—'));
 
-  srvBody.appendChild(srvBtn('Перезапустить сервер', '', async () => {
-    try {
-      await api('/api/server', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restart' }) });
-      if (navigator.vibrate) navigator.vibrate(30);
-      srvBox.classList.remove('on');
-      srvWaitBack();
-    } catch (_) { setStat('не получилось перезапустить', false); }
-  }, '<path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 4v5h-5"/>'));
-
-  srvBody.appendChild(srvBtn('Остановить сервер', 'danger', async () => {
-    if (!confirm('Остановить сервер? Чат замолчит, пока не включишь его снова.')) return;
-    try {
-      await api('/api/server', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stop' }) });
-      if (navigator.vibrate) navigator.vibrate(30);
-      srvBox.classList.remove('on');
-      toast('Сервер выключается…');
-      waitForStop();
-    } catch (_) { setStat('не получилось', false); }
-  }, '<rect x="6" y="6" width="12" height="12" rx="2"/>'));
-
   srvBody.appendChild(srvBtn('Обновить', '', srvRender, '<path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 4v5h-5"/>'));
 
   const note = document.createElement('div');
   note.className = 'snote';
-  note.textContent = 'Отсюда можно только посмотреть состояние, перезапустить и остановить. Когда сервер остановлен, эта страница сама предложит его включить.';
+  note.textContent = 'Состояние моста на компьютере. Запуск и остановка сервера — с самого компьютера: assi.ps1 on / off и ярлык «Assi».';
   srvBody.appendChild(note);
 }
 
 $('srvclose').onclick = () => srvBox.classList.remove('on');
 $('srvrefresh').onclick = srvRender;
 
-const NAMES = { wake: 'Разбудить ноут (WOL)?', lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?', stopserver: 'Остановить сервер? Чат замолчит, пока не включишь его снова с телефона.' };
+const NAMES = { wake: 'Разбудить ноут (WOL)?', lock: 'Заблокировать ноут?', sleep: 'Усыпить ноут?', reboot: 'Перезагрузить ноут?', shutdown: 'Выключить ноут?' };
 $('pw').onclick = () => { if (!token) return; $('sheet').classList.add('on'); };
 $('sheet').onclick = async (e) => {
   if (e.target === $('sheet')) { $('sheet').classList.remove('on'); return; }
@@ -1135,15 +1080,6 @@ $('sheet').onclick = async (e) => {
   $('sheet').classList.remove('on');
   if (act === 'srvinfo') { srvBox.classList.add('on'); srvRender(); return; }
   if (!confirm(NAMES[act])) return;
-  if (act === 'stopserver') {
-    try {
-      await api('/api/server', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stop' }) });
-      if (navigator.vibrate) navigator.vibrate(30);
-      toast('Сервер выключается…');
-      waitForStop();
-    } catch (_) { setStat('не получилось', false); }
-    return;
-  }
   try {
     if (act === 'wake' && window.AssiNative && AssiNative.hasWol()) {
       const info = await api('/api/wol-info').catch(() => null);
@@ -1164,7 +1100,7 @@ function applyPowerCaps(list) {
   const ok = new Set(Array.isArray(list) ? list : []);
   document.querySelectorAll('#sheet .row[data-act]').forEach(r => {
     const a = r.dataset.act;
-    const native = (a === 'wake' && !!window.AssiNative) || a === 'stopserver' || a === 'srvinfo';  // WOL шлёт приложение, стоп/инфо сервера есть всегда
+    const native = (a === 'wake' && !!window.AssiNative) || a === 'srvinfo';  // WOL шлёт приложение, состояние сервера есть всегда
     r.style.display = (ok.has(a) || native) ? '' : 'none';
   });
 }

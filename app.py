@@ -1,4 +1,4 @@
-"""Мост телефон <-> OpenCode. FastAPI + PWA + faster-whisper."""
+﻿"""Мост телефон <-> OpenCode. FastAPI + PWA + faster-whisper."""
 import asyncio, base64, json, os, re, secrets, shutil, socket, subprocess, sys, tempfile, time, uuid, datetime
 from pathlib import Path
 
@@ -19,7 +19,7 @@ PUBLIC_URL = os.environ.get("ASSI_PUBLIC_URL", "https://assi.assi.pro")
 # Гостевые экземпляры (friend, slava) получают лишь чат: без проводника, питания и очереди файлов.
 OWNER = INSTANCE == "assi"
 MODEL = {"providerID": "opencode", "id": "deepseek-v4.1-flash-free"}
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.4.2"
 STARTED = time.time()
 AGENT = "build"
 WORKDIR = str(Path.home())
@@ -123,21 +123,6 @@ async def ping():
     return {"ok": True, "owner": OWNER, "instance": INSTANCE, "name": state.get("name") or INSTANCE}
 
 
-def _spawn_assi(action: str, delay: int = 2) -> None:
-    """Выполнить assi.ps1 <action> отдельно от моста (мост при этом может быть убит)."""
-    script = ROOT / "assi.ps1"
-    cmd = (f"Start-Sleep {delay}; & '{script}' {action}")
-    ps = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
-                      "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    # CREATE_NO_WINDOW (0x08000000), а не DETACHED_PROCESS: с DETACHED_PROCESS
-    # PowerShell молча ничего не делает (проверено).
-    flags = 0x08000000 | 0x00000200
-    log = open(ROOT / "assi-spawn.log", "a", encoding="utf-8")
-    subprocess.Popen([ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
-                     cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                     creationflags=flags, close_fds=True)
-
-
 @app.get("/api/server")
 def server_status(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
     """Состояние сервера для экрана «Сервер» в приложении.
@@ -148,8 +133,7 @@ def server_status(request: Request, token: str | None = Header(default=None, ali
     return {"ok": True, "instance": INSTANCE, "name": state.get("name") or INSTANCE,
             "public_url": (state.get("public_url") or "").rstrip("/"), "port": BIND[1],
             "pid": os.getpid(), "uptime": up, "uptime_text": _human_uptime(up),
-            "tunnel": _tunnel_running(), "owner": OWNER, "version": APP_VERSION,
-            "actions": ["status", "restart", "stop"]}
+            "tunnel": _tunnel_running(), "owner": OWNER, "version": APP_VERSION}
 
 
 TUNNEL_CACHE = {"ts": 0.0, "val": False}
@@ -183,25 +167,6 @@ def _human_uptime(sec: int) -> str:
     if h:
         return f"{h} ч {m} мин"
     return f"{m} мин"
-
-
-@app.post("/api/server")
-async def server_action(request: Request, token: str | None = Header(default=None, alias="X-Bridge-Token")):
-    """Только владелец: остановить или перезапустить мост."""
-    auth(request, token)
-    owner_only()
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    action = (body or {}).get("action")
-    if action == "stop":
-        _spawn_assi("pause", delay=2)
-        return {"ok": True, "action": "stop", "note": "мост выключится через 2 секунды, туннель останется"}
-    if action == "restart":
-        _spawn_assi("restart", delay=1)
-        return {"ok": True, "action": "restart", "note": "мост перезапустится за ~10–30 секунд"}
-    raise HTTPException(400, "неизвестное действие")
 
 
 # --- Управление питанием -------------------------------------------------
